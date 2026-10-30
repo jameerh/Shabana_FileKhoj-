@@ -9,7 +9,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
     entities = [DocumentEntity::class, DocumentTextEntity::class, DocumentFtsEntity::class],
-    version = 3,
+    version = 4,
     exportSchema = false
 )
 abstract class DocumentDatabase : RoomDatabase() {
@@ -41,6 +41,26 @@ abstract class DocumentDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                // Room's generated FTS4 schema has no explicit tokenizer option and
+                // expects columns in this order. Recreate the table to match Room's
+                // schema validation, then restore existing searchable content.
+                database.execSQL("DROP TABLE IF EXISTS document_fts")
+                database.execSQL(
+                    "CREATE VIRTUAL TABLE document_fts USING FTS4(extractedText TEXT NOT NULL, displayName TEXT NOT NULL)"
+                )
+                database.execSQL(
+                    """
+                    INSERT INTO document_fts(rowid, extractedText, displayName)
+                    SELECT documents.id, COALESCE(document_text.extractedText, ''), documents.displayName
+                    FROM documents
+                    LEFT JOIN document_text ON document_text.documentId = documents.id
+                    """.trimIndent()
+                )
+            }
+        }
+
         @Volatile
         private var instance: DocumentDatabase? = null
 
@@ -51,7 +71,7 @@ abstract class DocumentDatabase : RoomDatabase() {
                     DocumentDatabase::class.java,
                     "filekhoj.db"
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
                     .build()
                     .also { instance = it }
             }
