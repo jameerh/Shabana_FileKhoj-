@@ -1,6 +1,6 @@
 # Database and indexing design
 
-## Planned tables
+## Implemented in the current scaffold\n- `documents` Room entity with stable generated ID, display name, MIME type, size, source URI, import timestamp, optional source modification timestamp, optional category/hash, and index status.\n- Unique index on `sourceUri` prevents duplicate registration of the same provider URI; indexes support name lookup and recent-first sorting.\n- `DocumentDao` exposes a Flow of recent-first rows and a count Flow.\n- `DocumentRepository` queries standard `OpenableColumns` metadata and imports each selected URI independently so one failed URI does not abort the batch.\n- The UI requests persistable read permission where the provider supports it and stores the URI reference rather than copying source files. A provider can still revoke access; a future availability/revalidation state is required.\n\nThe current import milestone does not extract document text or run OCR. Imported rows remain `NOT_INDEXED`.\n\n## Planned tables
 - `documents`: stable ID, display/normalized name, MIME, size, source URI/reference, managed path if any, content hash/version, folder, timestamps, favourite, availability and index status.
 - `folders`, `categories`, `document_categories`, `tags`, `document_tags`: organization.
 - `document_pages`: page metadata and extraction status.
