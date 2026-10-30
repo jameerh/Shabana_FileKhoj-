@@ -8,8 +8,8 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
-    entities = [DocumentEntity::class],
-    version = 2,
+    entities = [DocumentEntity::class, DocumentTextEntity::class, DocumentFtsEntity::class],
+    version = 3,
     exportSchema = false
 )
 abstract class DocumentDatabase : RoomDatabase() {
@@ -30,6 +30,17 @@ abstract class DocumentDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL(
+                    "CREATE TABLE IF NOT EXISTS document_text (documentId INTEGER NOT NULL PRIMARY KEY, extractedText TEXT NOT NULL, indexedAt INTEGER NOT NULL, pageCount INTEGER NOT NULL)"
+                )
+                database.execSQL(
+                    "CREATE VIRTUAL TABLE IF NOT EXISTS document_fts USING FTS4(displayName TEXT NOT NULL, extractedText TEXT NOT NULL, tokenize=unicode61)"
+                )
+            }
+        }
+
         @Volatile
         private var instance: DocumentDatabase? = null
 
@@ -40,7 +51,7 @@ abstract class DocumentDatabase : RoomDatabase() {
                     DocumentDatabase::class.java,
                     "filekhoj.db"
                 )
-                    .addMigrations(MIGRATION_1_2)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
                     .build()
                     .also { instance = it }
             }
