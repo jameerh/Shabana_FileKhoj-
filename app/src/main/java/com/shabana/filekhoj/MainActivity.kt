@@ -222,6 +222,8 @@ private fun FileKhojApp(
     var dateFilter by remember { mutableStateOf(DateFilter.ANY) }
     var signatureFilter by remember { mutableStateOf(SignatureFilter.ANY) }
     var favouritesOnly by remember { mutableStateOf(false) }
+    var selectedCategory by remember { mutableStateOf("All categories") }
+    var categoryMenuExpanded by remember { mutableStateOf(false) }
     var signatureMenuExpanded by remember { mutableStateOf(false) }
     var previewMode by remember { mutableStateOf(PreviewMode.MEDIUM) }
     var selectedIds by remember { mutableStateOf<Set<Long>>(emptySet()) }
@@ -247,7 +249,11 @@ private fun FileKhojApp(
         else repository.searchDocuments(query).map { it.id }.toSet()
     }
 
-    val filteredDocuments = remember(query, documents, typeFilter, dateFilter, signatureFilter, favouritesOnly, fullTextMatchIds) {
+    val categoryOptions = remember(documents) {
+        listOf("All categories") + documents.mapNotNull { it.category?.trim()?.takeIf(String::isNotBlank) }
+            .distinct().sorted()
+    }
+    val filteredDocuments = remember(query, documents, typeFilter, dateFilter, signatureFilter, favouritesOnly, selectedCategory, fullTextMatchIds) {
         val now = System.currentTimeMillis()
         documents.filter { document ->
             val matchesQuery = query.isBlank() || document.displayName.contains(query.trim(), true) ||
@@ -265,6 +271,7 @@ private fun FileKhojApp(
             }
             val age = now - document.dateAdded
             val matchesFavourite = !favouritesOnly || document.isFavourite
+            val matchesCategory = selectedCategory == "All categories" || document.category == selectedCategory
             val matchesSignature = when (signatureFilter) {
                 SignatureFilter.ANY -> true
                 SignatureFilter.VERIFIED -> document.signatureStatus == DocumentEntity.SIGNATURE_STATUS_VERIFIED
@@ -281,7 +288,7 @@ private fun FileKhojApp(
                 DateFilter.WEEK -> age <= 7L * 24 * 60 * 60 * 1000
                 DateFilter.MONTH -> age <= 30L * 24 * 60 * 60 * 1000
             }
-            matchesQuery && matchesType && matchesDate && matchesFavourite && matchesSignature
+            matchesQuery && matchesType && matchesDate && matchesFavourite && matchesSignature && matchesCategory
         }
     }
     val visibleIds = remember(filteredDocuments) { filteredDocuments.map { it.id }.toSet() }
@@ -361,6 +368,18 @@ private fun FileKhojApp(
                     }
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Box {
+                        FilterChip(selected = selectedCategory != "All categories",
+                            onClick = { categoryMenuExpanded = true }, label = { Text(selectedCategory) })
+                        DropdownMenu(expanded = categoryMenuExpanded, onDismissRequest = { categoryMenuExpanded = false }) {
+                            categoryOptions.forEach { category ->
+                                DropdownMenuItem(text = { Text(category) }, onClick = {
+                                    selectedCategory = category
+                                    categoryMenuExpanded = false
+                                })
+                            }
+                        }
+                    }
                     FilterChip(selected = favouritesOnly, onClick = { favouritesOnly = !favouritesOnly },
                         label = { Text("★ Favourites") })
                     Box {
@@ -379,6 +398,7 @@ private fun FileKhojApp(
                         dateFilter = DateFilter.ANY
                         signatureFilter = SignatureFilter.ANY
                         favouritesOnly = false
+                        selectedCategory = "All categories"
                     }) { Text("Reset filters") }
                 }
 
