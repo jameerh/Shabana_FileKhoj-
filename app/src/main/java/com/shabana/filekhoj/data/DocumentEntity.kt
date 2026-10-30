@@ -39,6 +39,10 @@ data class DocumentEntity(
         const val INDEX_STATUS_QUEUED = "QUEUED"
         const val INDEX_STATUS_INDEXED = "INDEXED"
         const val INDEX_STATUS_FAILED = "FAILED"
+        const val INDEX_STATUS_INDEXING = "INDEXING"
+        const val INDEX_STATUS_OCR_REQUIRED = "OCR_REQUIRED"
+        const val INDEX_STATUS_UNSUPPORTED = "UNSUPPORTED"
+        const val INDEX_STATUS_SOURCE_UNAVAILABLE = "SOURCE_UNAVAILABLE"
 
         const val SIGNATURE_STATUS_UNKNOWN = "UNKNOWN"
         const val SIGNATURE_STATUS_UNSIGNED = "UNSIGNED"
