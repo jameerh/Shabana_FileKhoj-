@@ -47,16 +47,23 @@ class DocumentRepository(context: Context) {
                 val metadata = queryMetadata(uri)
                 var encryptedSource = false
                 var storedDecrypted = false
+                var signatureStatus = DocumentEntity.SIGNATURE_STATUS_UNSIGNED
+                var signatureCount = 0
 
                 if (metadata.mimeType.contains("pdf", ignoreCase = true) ||
                     metadata.displayName.endsWith(".pdf", ignoreCase = true)
                 ) {
                     when (val preparation = securePdfImporter.prepare(uri, passwordsByUri[uri.toString()])) {
-                        PdfPreparationResult.OriginalUnencrypted -> Unit
+                        is PdfPreparationResult.OriginalUnencrypted -> {
+                            signatureStatus = preparation.signatureStatus
+                            signatureCount = preparation.signatureCount
+                        }
                         is PdfPreparationResult.DecryptedCopy -> {
                             managedCopy = preparation.file
                             encryptedSource = true
                             storedDecrypted = true
+                            signatureStatus = preparation.signatureStatus
+                            signatureCount = preparation.signatureCount
                         }
                         PdfPreparationResult.PasswordRequired -> {
                             passwordRequired += uri
@@ -79,7 +86,9 @@ class DocumentRepository(context: Context) {
                         sourceLastModified = metadata.lastModified,
                         isEncryptedSource = encryptedSource,
                         isStoredDecrypted = storedDecrypted,
-                        managedPath = managedCopy?.absolutePath
+                        managedPath = managedCopy?.absolutePath,
+                        signatureStatus = signatureStatus,
+                        signatureCount = signatureCount
                     )
                 )
                 if (rowId == -1L) {
