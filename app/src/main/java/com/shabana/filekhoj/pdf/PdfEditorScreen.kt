@@ -186,7 +186,7 @@ fun PdfEditorScreen(
                 message = "Step 2 of 2: Opening Android's Save As screen…"
                 Log.i(
                     "ShabanaFileKhoj",
-                    "PDF editor: generated \${outputFile.length()} bytes; requesting Android Save As"
+                    "PDF editor: generated ${outputFile.length()} bytes; requesting Android Save As"
                 )
                 val fileForHost = outputFile
                 onSaveCopy(fileForHost) { success, feedback ->
@@ -205,7 +205,7 @@ fun PdfEditorScreen(
                         message = detail
                         saveError = detail
                         Toast.makeText(context, detail, Toast.LENGTH_LONG).show()
-                        Log.e("ShabanaFileKhoj", "PDF editor: Save As failed: \$detail")
+                        Log.e("ShabanaFileKhoj", "PDF editor: Save As failed: $detail")
                     }
                 }
                 outputFile = null // ownership transfers to MainActivity
@@ -213,7 +213,7 @@ fun PdfEditorScreen(
                 outputFile?.delete()
                 isSaving = false
                 val detail = error.message ?: error.javaClass.simpleName
-                val failure = "Could not save PDF: \$detail"
+                val failure = "Could not save PDF: $detail"
                 message = failure
                 saveError = failure
                 Log.e("ShabanaFileKhoj", "PDF editor Save as Copy failed", error)
