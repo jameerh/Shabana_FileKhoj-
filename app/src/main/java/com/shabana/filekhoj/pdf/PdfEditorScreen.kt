@@ -1,6 +1,8 @@
 package com.shabana.filekhoj.pdf
 
 import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import android.graphics.Bitmap
 import com.shabana.filekhoj.data.DocumentEntity
 import androidx.compose.foundation.Image
@@ -38,6 +40,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -50,6 +53,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import java.io.File
@@ -65,7 +70,7 @@ fun PdfEditorScreen(
     context: Context,
     document: DocumentEntity,
     onClose: () -> Unit,
-    onSaveCopy: (File) -> Unit
+    onSaved: (Uri) -> Unit
 ) {
     var session by remember(document.id) { mutableStateOf<PdfEditorSession?>(null) }
     var pages by remember(document.id) { mutableStateOf(emptyList<PdfEditorPage>()) }
@@ -78,11 +83,56 @@ fun PdfEditorScreen(
     var isLoading by remember(document.id) { mutableStateOf(true) }
     var isSaving by remember(document.id) { mutableStateOf(false) }
     var showDeleteConfirmation by remember { mutableStateOf(false) }
-    var showDiscardConfirmation by remember { mutableStateOf(false) }
+    var showExitOptions by remember { mutableStateOf(false) }
+    var pendingExportPath by rememberSaveable(document.id) { mutableStateOf<String?>(null) }
     var message by remember { mutableStateOf<String?>(null) }
     var loadError by remember { mutableStateOf<String?>(null) }
     var previewBitmap by remember { mutableStateOf<Bitmap?>(null) }
     val scope = rememberCoroutineScope()
+
+    val createDocumentLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/pdf")
+    ) { destinationUri ->
+        val exportFile = pendingExportPath?.let(::File)
+        pendingExportPath = null
+
+        if (destinationUri == null) {
+            exportFile?.delete()
+            isSaving = false
+            message = "Save cancelled. Your edits are still open and the original PDF is unchanged."
+        } else if (exportFile == null || !exportFile.isFile) {
+            isSaving = false
+            message = "The temporary edited PDF is unavailable. Please tap Save as PDF copy again."
+        } else {
+            scope.launch {
+                try {
+                    withContext(Dispatchers.IO) {
+                        val destination = context.contentResolver.openOutputStream(destinationUri, "w")
+                            ?: throw IllegalStateException("Android could not open the selected save location.")
+                        destination.use { output ->
+                            exportFile.inputStream().use { input -> input.copyTo(output) }
+                        }
+                    }
+                    try {
+                        context.contentResolver.takePersistableUriPermission(
+                            destinationUri,
+                            Intent.FLAG_GRANT_READ_URI_PERMISSION
+                        )
+                    } catch (_: SecurityException) {
+                        // Some document providers grant only a temporary read permission.
+                    }
+                    onSaved(destinationUri)
+                    message = "PDF copy saved successfully."
+                    onClose()
+                } catch (error: Exception) {
+                    message = error.message ?: "Could not write the edited PDF to the selected location."
+                } finally {
+                    exportFile.delete()
+                    isSaving = false
+                }
+            }
+        }
+    }
 
     LaunchedEffect(document.id) {
         isLoading = true
@@ -145,6 +195,37 @@ fun PdfEditorScreen(
         message = null
     }
 
+
+    fun saveAsCopy() {
+        if (isSaving) return
+        val activeSession = session
+        if (activeSession == null) {
+            message = "The PDF is not ready to save yet."
+            return
+        }
+
+        isSaving = true
+        message = "Applying page order and rotations and validating the new PDF…"
+        val currentPages = pages.toList()
+        scope.launch {
+            var outputFile: File? = null
+            try {
+                outputFile = withContext(Dispatchers.IO) {
+                    activeSession.exportCopy(currentPages)
+                }
+                pendingExportPath = outputFile.absolutePath
+                val baseName = document.displayName.substringBeforeLast('.', document.displayName)
+                    .ifBlank { "FileKhoj_Document" }
+                createDocumentLauncher.launch("${baseName}_edited.pdf")
+            } catch (error: Exception) {
+                outputFile?.delete()
+                pendingExportPath = null
+                isSaving = false
+                message = error.message ?: "Could not prepare the edited PDF copy."
+            }
+        }
+    }
+
     fun undo() {
         if (undoStack.isEmpty()) return
         redoStack = (redoStack + listOf(pages)).takeLast(40)
@@ -167,7 +248,7 @@ fun PdfEditorScreen(
 
     Dialog(
         onDismissRequest = {
-            if (isDirty) showDiscardConfirmation = true else onClose()
+            if (isDirty) showExitOptions = true else onClose()
         },
         properties = DialogProperties(usePlatformDefaultWidth = false)
     ) {
@@ -186,7 +267,13 @@ fun PdfEditorScreen(
                                 overflow = TextOverflow.Ellipsis)
                         }
                         TextButton(onClick = {
-                            if (isDirty) showDiscardConfirmation = true else onClose()
+                            if (isSaving) {
+                                message = "Finish or cancel the Save As operation before closing."
+                            } else if (isDirty) {
+                                showExitOptions = true
+                            } else {
+                                onClose()
+                            }
                         }) { Text("Close", color = Color.White) }
                     }
 
@@ -285,6 +372,48 @@ fun PdfEditorScreen(
                                     } else pages.map { it.sourceIndex }.toSet()
                                 }) {
                                     Text(if (selectedPageIndices.size == pages.size) "Clear selection" else "Select all")
+                                }
+                            }
+
+                            if (selectedPageIndices.isNotEmpty()) {
+                                Card(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    colors = CardDefaults.cardColors(containerColor = Color(0xFFEAF1EC)),
+                                    shape = RoundedCornerShape(12.dp)
+                                ) {
+                                    Column(Modifier.fillMaxWidth().padding(8.dp),
+                                        verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        Text("${selectedPageIndices.size} page(s) selected",
+                                            style = MaterialTheme.typography.labelLarge,
+                                            color = editorGreen, fontWeight = FontWeight.Bold)
+                                        Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                                            OutlinedButton(
+                                                enabled = pages.indexOfFirst { it.sourceIndex in selectedPageIndices } > 0,
+                                                onClick = {
+                                                    updatePages(PdfEditorPageOperations.moveSelected(
+                                                        pages, selectedPageIndices, direction = -1
+                                                    ))
+                                                },
+                                                modifier = Modifier.weight(1f),
+                                                contentPadding = PaddingValues(horizontal = 2.dp)
+                                            ) { Text("↑ Move up", fontSize = 11.sp) }
+                                            OutlinedButton(
+                                                enabled = pages.indexOfLast { it.sourceIndex in selectedPageIndices } < pages.lastIndex,
+                                                onClick = {
+                                                    updatePages(PdfEditorPageOperations.moveSelected(
+                                                        pages, selectedPageIndices, direction = 1
+                                                    ))
+                                                },
+                                                modifier = Modifier.weight(1f),
+                                                contentPadding = PaddingValues(horizontal = 2.dp)
+                                            ) { Text("↓ Move down", fontSize = 11.sp) }
+                                            OutlinedButton(
+                                                onClick = { showDeleteConfirmation = true },
+                                                modifier = Modifier.weight(1f),
+                                                contentPadding = PaddingValues(horizontal = 2.dp)
+                                            ) { Text("Delete", fontSize = 11.sp) }
+                                        }
+                                    }
                                 }
                             }
 
@@ -392,28 +521,14 @@ fun PdfEditorScreen(
                                 style = MaterialTheme.typography.labelSmall, color = Color(0xFF64756C)
                             )
                             Button(
-                                onClick = {
-                                    val activeSession = session ?: return@Button
-                                    isSaving = true
-                                    message = "Preparing and verifying edited PDF…"
-                                    val currentPages = pages
-                                    scope.launch {
-                                        try {
-                                            val output = withContext(Dispatchers.IO) {
-                                                activeSession.exportCopy(currentPages)
-                                            }
-                                            message = "Copy is ready. Choose where to save it."
-                                            onSaveCopy(output)
-                                        } catch (error: Exception) {
-                                            message = error.message ?: "Could not export this PDF."
-                                        } finally {
-                                            isSaving = false
-                                        }
-                                    }
-                                },
+                                onClick = ::saveAsCopy,
                                 enabled = session != null && !isSaving && pages.isNotEmpty(),
                                 modifier = Modifier.fillMaxWidth()
-                            ) { Text(if (isSaving) "Preparing copy…" else "Save as PDF copy") }
+                            ) {
+                                Text(
+                                    if (isSaving) "Preparing PDF…" else if (isDirty) "Save edited PDF copy" else "Save PDF copy"
+                                )
+                            }
                         }
                     }
                 }
@@ -441,18 +556,30 @@ fun PdfEditorScreen(
         )
     }
 
-    if (showDiscardConfirmation) {
+    if (showExitOptions) {
         AlertDialog(
-            onDismissRequest = { showDiscardConfirmation = false },
-            title = { Text("Discard PDF edits?") },
-            text = { Text("Your original document is safe. Unsaved page changes will be discarded.") },
-            confirmButton = {
-                TextButton(onClick = {
-                    showDiscardConfirmation = false
-                    onClose()
-                }) { Text("Discard edits") }
+            onDismissRequest = { showExitOptions = false },
+            title = { Text("Save changes before closing?") },
+            text = {
+                Text("You have unsaved PDF edits. Save a separate copy, discard these edits, or continue editing. Your original PDF will never be changed.")
             },
-            dismissButton = { TextButton(onClick = { showDiscardConfirmation = false }) { Text("Continue editing") } }
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showExitOptions = false
+                        saveAsCopy()
+                    }
+                ) { Text("Save a copy") }
+            },
+            dismissButton = {
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    TextButton(onClick = {
+                        showExitOptions = false
+                        onClose()
+                    }) { Text("Discard") }
+                    TextButton(onClick = { showExitOptions = false }) { Text("Continue editing") }
+                }
+            }
         )
     }
 }
