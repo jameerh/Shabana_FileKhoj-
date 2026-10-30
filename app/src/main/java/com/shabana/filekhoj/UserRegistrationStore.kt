@@ -56,7 +56,7 @@ class UserRegistrationStore(context: Context) {
         preferences.edit().putString(KEY_ACTIVE_MOBILE, profile.mobile).apply()
     }
 
-    fun register(name: String, mobile: String, location: String): LocalUserProfile {
+    fun register(name: String, mobile: String, location: String, registerAsAdmin: Boolean): LocalUserProfile {
         require(name.isNotBlank()) { "Enter your name." }
         require(isValidIndianMobile(mobile)) { "Enter a valid 10-digit Indian mobile number." }
         require(location.isNotBlank()) { "Enter your village, town or city." }
@@ -66,7 +66,16 @@ class UserRegistrationStore(context: Context) {
             "A profile with this mobile number is already registered on this device."
         }
 
-        val role = if (current.none { it.role == ROLE_ADMIN }) ROLE_ADMIN else ROLE_USER
+        val hasAdmin = current.any { it.role == ROLE_ADMIN }
+        require(!registerAsAdmin || !hasAdmin) {
+            "An administrator profile already exists on this device."
+        }
+        if (!registerAsAdmin) {
+            require(adminWhatsappNumber().isNotBlank()) {
+                "Set the admin WhatsApp number before registering as a user."
+            }
+        }
+        val role = if (registerAsAdmin) ROLE_ADMIN else ROLE_USER
         val profile = LocalUserProfile(
             name = name.trim(),
             mobile = normalizeMobile(mobile),
@@ -76,7 +85,7 @@ class UserRegistrationStore(context: Context) {
             notificationConfirmed = role == ROLE_ADMIN
         )
         persist(current + profile)
-        if (role == ROLE_ADMIN && adminWhatsappNumber().isBlank()) {
+        if (role == ROLE_ADMIN) {
             setAdminWhatsappNumber(profile.mobile)
         }
         setActiveProfile(profile)
