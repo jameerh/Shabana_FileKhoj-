@@ -6,7 +6,7 @@ import org.json.JSONObject
 
 /**
  * Stores profiles only on this device. There is deliberately no cloud account backend.
- * The first profile on a fresh installation is the local device administrator.
+ * The installer explicitly chooses whether the device is configured as Admin or User.
  */
 data class LocalUserProfile(
     val name: String,
