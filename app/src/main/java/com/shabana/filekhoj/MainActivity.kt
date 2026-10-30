@@ -426,11 +426,8 @@ private fun FileKhojApp(
                                     editingDocument = document
                                 },
                                 onDelete = {
-                                    scope.launch {
-                                        val result = repository.deleteDocuments(listOf(document.id))
-                                        onStatus(if (result.deleted > 0) "Removed from FileKhoj. The original file was not deleted."
-                                        else "Could not remove this document entry.")
-                                    }
+                                    selectedIds = setOf(document.id)
+                                    showDeleteConfirmation = true
                                 },
                                 onFavourite = {
                                     scope.launch { repository.setFavourite(document.id, !document.isFavourite) }
