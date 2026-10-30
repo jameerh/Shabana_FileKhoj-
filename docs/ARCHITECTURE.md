@@ -17,7 +17,7 @@ Select/import -> validate URI and MIME -> persist URI permission where supported
 Normalize query -> search filenames/metadata and FTS -> apply folder/category/date/type filters -> rank exact filename and phrase hits above weaker matches -> return bounded results with snippets and page numbers. Debounce user typing and cancel obsolete queries. Never open every source file or run OCR on the query path.
 
 ## Package direction
-`in.shabana.filekhoj`: `data/` (Room/repositories), `domain/` (models/use cases), `indexing/` (queue/workers/extractors/OCR/recovery), `search/` (query parsing/ranking/filters), `storage/` (SAF/managed files), `ui/` (Compose/ViewModels). Add packages as features are implemented rather than creating empty folders.
+`com.shabana.filekhoj`: `data/` (Room/repositories), `domain/` (models/use cases), `indexing/` (queue/workers/extractors/OCR/recovery), `search/` (query parsing/ranking/filters), `storage/` (SAF/managed files), `ui/` (Compose/ViewModels). Add packages as features are implemented rather than creating empty folders.
 
 ## Large libraries
 Use B-tree indexes for metadata and FTS5 for full text. Store text per page with stable IDs, paginate results, cache thumbnails, bound OCR concurrency, and benchmark real datasets on physical devices. Initial goals (not guarantees): p95 <=50 ms for 10k docs and <=100 ms for 100k docs on a named reference device. Record p50/p95/p99, query plans, index size and device model.
