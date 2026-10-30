@@ -77,6 +77,9 @@ private enum class TypeFilter(val label: String) {
 private enum class DateFilter(val label: String) {
     ANY("Any date"), WEEK("Last 7 days"), MONTH("Last 30 days")
 }
+private enum class SignatureFilter(val label: String) {
+    ANY("Any signature"), VERIFIED("Verified"), NEEDS_REVIEW("Needs review"), UNSIGNED("Unsigned")
+}
 private enum class PreviewMode(val label: String) {
     DETAILS("Details"), SMALL("Small"), MEDIUM("Medium"), LARGE("Large")
 }
@@ -172,6 +175,9 @@ private fun FileKhojApp(
     var documents by remember { mutableStateOf(emptyList<DocumentEntity>()) }
     var typeFilter by remember { mutableStateOf(TypeFilter.ALL) }
     var dateFilter by remember { mutableStateOf(DateFilter.ANY) }
+    var signatureFilter by remember { mutableStateOf(SignatureFilter.ANY) }
+    var favouritesOnly by remember { mutableStateOf(false) }
+    var signatureMenuExpanded by remember { mutableStateOf(false) }
     var previewMode by remember { mutableStateOf(PreviewMode.MEDIUM) }
     var selectedIds by remember { mutableStateOf<Set<Long>>(emptySet()) }
     var showDeleteConfirmation by remember { mutableStateOf(false) }
@@ -187,7 +193,7 @@ private fun FileKhojApp(
         }
     }
 
-    val filteredDocuments = remember(query, documents, typeFilter, dateFilter) {
+    val filteredDocuments = remember(query, documents, typeFilter, dateFilter, signatureFilter, favouritesOnly) {
         val now = System.currentTimeMillis()
         documents.filter { document ->
             val matchesQuery = query.isBlank() || document.displayName.contains(query.trim(), true)
@@ -203,12 +209,24 @@ private fun FileKhojApp(
                     mime.contains("spreadsheet"))
             }
             val age = now - document.dateAdded
+            val matchesFavourite = !favouritesOnly || document.isFavourite
+            val matchesSignature = when (signatureFilter) {
+                SignatureFilter.ANY -> true
+                SignatureFilter.VERIFIED -> document.signatureStatus == DocumentEntity.SIGNATURE_STATUS_VERIFIED
+                SignatureFilter.UNSIGNED -> document.signatureStatus == DocumentEntity.SIGNATURE_STATUS_UNSIGNED
+                SignatureFilter.NEEDS_REVIEW -> document.signatureStatus in setOf(
+                    DocumentEntity.SIGNATURE_STATUS_UNKNOWN,
+                    DocumentEntity.SIGNATURE_STATUS_UNTRUSTED,
+                    DocumentEntity.SIGNATURE_STATUS_INVALID,
+                    DocumentEntity.SIGNATURE_STATUS_INCOMPLETE
+                )
+            }
             val matchesDate = when (dateFilter) {
                 DateFilter.ANY -> true
                 DateFilter.WEEK -> age <= 7L * 24 * 60 * 60 * 1000
                 DateFilter.MONTH -> age <= 30L * 24 * 60 * 60 * 1000
             }
-            matchesQuery && matchesType && matchesDate
+            matchesQuery && matchesType && matchesDate && matchesFavourite && matchesSignature
         }
     }
     val visibleIds = remember(filteredDocuments) { filteredDocuments.map { it.id }.toSet() }
@@ -275,6 +293,21 @@ private fun FileKhojApp(
                         }
                     }
                     Box {
+                        FilterChip(selected = signatureFilter != SignatureFilter.ANY,
+                            onClick = { signatureMenuExpanded = true }, label = { Text(signatureFilter.label) })
+                        DropdownMenu(expanded = signatureMenuExpanded, onDismissRequest = { signatureMenuExpanded = false }) {
+                            SignatureFilter.values().forEach { filter ->
+                                DropdownMenuItem(text = { Text(filter.label) }, onClick = {
+                                    signatureFilter = filter; signatureMenuExpanded = false
+                                })
+                            }
+                        }
+                    }
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    FilterChip(selected = favouritesOnly, onClick = { favouritesOnly = !favouritesOnly },
+                        label = { Text("★ Favourites") })
+                    Box {
                         FilterChip(selected = previewMode != PreviewMode.MEDIUM, onClick = { viewMenuExpanded = true },
                             label = { Text("View: ${previewMode.label}") })
                         DropdownMenu(expanded = viewMenuExpanded, onDismissRequest = { viewMenuExpanded = false }) {
@@ -285,6 +318,12 @@ private fun FileKhojApp(
                             }
                         }
                     }
+                    TextButton(onClick = {
+                        typeFilter = TypeFilter.ALL
+                        dateFilter = DateFilter.ANY
+                        signatureFilter = SignatureFilter.ANY
+                        favouritesOnly = false
+                    }) { Text("Reset filters") }
                 }
 
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
