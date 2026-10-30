@@ -1,4 +1,4 @@
-package in.shabana.filekhoj
+package com.shabana.filekhoj
 
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -39,8 +39,10 @@ private fun FileKhojApp() {
                     label = { Text("Search documents…") }, singleLine = true
                 )
                 Text("Offline-first document library starter.")
-                Text("Starter UI only. Import, OCR and indexed search are planned modules.",
-                    style = MaterialTheme.typography.bodySmall)
+                Text(
+                    "Starter UI only. Import, OCR and indexed search are planned modules.",
+                    style = MaterialTheme.typography.bodySmall
+                )
             }
         }
     }
