@@ -181,12 +181,16 @@ class MainActivity : ComponentActivity() {
 
     private fun openDocument(document: DocumentEntity) {
         try {
-            val documentUri = document.managedPath?.let { path ->
-                val managedFile = File(path)
-                if (managedFile.isFile) FileProvider.getUriForFile(
-                    this, "$packageName.fileprovider", managedFile
-                ) else null
-            } ?: Uri.parse(document.sourceUri)
+            val documentUri = if (document.isStoredDecrypted) {
+                val managedFile = document.managedPath?.let(::File)
+                if (managedFile == null || !managedFile.isFile) {
+                    importStatus.value = "Unlocked local copy is missing. Remove this entry and import the protected PDF again."
+                    return
+                }
+                FileProvider.getUriForFile(this, "$packageName.fileprovider", managedFile)
+            } else {
+                Uri.parse(document.sourceUri)
+            }
             val intent = Intent(Intent.ACTION_VIEW).apply {
                 setDataAndType(documentUri, document.mimeType)
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
