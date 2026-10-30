@@ -41,7 +41,6 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -61,9 +60,11 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.core.content.FileProvider
 import androidx.lifecycle.lifecycleScope
 import com.shabana.filekhoj.data.DocumentEntity
 import com.shabana.filekhoj.data.DocumentRepository
+import java.io.File
 import java.text.DateFormat
 import java.util.Date
 import java.util.Locale
@@ -89,6 +90,8 @@ class MainActivity : ComponentActivity() {
     private lateinit var repository: DocumentRepository
     private val importStatus = mutableStateOf<String?>(null)
     private val searchHistory = mutableStateOf<List<String>>(emptyList())
+    private val passwordQueue = mutableStateOf<List<Uri>>(emptyList())
+    private val passwordError = mutableStateOf<String?>(null)
     private val prefs by lazy { getSharedPreferences("filekhoj_preferences", Context.MODE_PRIVATE) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -109,10 +112,15 @@ class MainActivity : ComponentActivity() {
             lifecycleScope.launch {
                 importStatus.value = "Importing ${selectedUris.size} document(s)…"
                 val result = repository.importDocuments(selectedUris)
+                passwordQueue.value = result.passwordRequiredUris
+                passwordError.value = null
                 importStatus.value = buildString {
                     append("Imported ${result.imported}")
                     if (result.alreadyPresent > 0) append(" • ${result.alreadyPresent} already added")
                     if (result.failed > 0) append(" • ${result.failed} failed")
+                    if (result.passwordRequiredUris.isNotEmpty()) {
+                        append(" • password required for ${result.passwordRequiredUris.size} PDF(s)")
+                    }
                 }
             }
         }
@@ -123,6 +131,31 @@ class MainActivity : ComponentActivity() {
                 repository = repository,
                 statusMessage = importStatus.value,
                 searchHistory = searchHistory.value,
+                passwordRequest = passwordQueue.value.firstOrNull(),
+                passwordError = passwordError.value,
+                onPasswordSubmit = { uri, password ->
+                    lifecycleScope.launch {
+                        val result = repository.importDocuments(listOf(uri), mapOf(uri.toString() to password))
+                        if (result.passwordRequiredUris.isNotEmpty()) {
+                            passwordError.value = "Incorrect password or unsupported PDF encryption. Try again."
+                        } else {
+                            passwordQueue.value = passwordQueue.value.drop(1)
+                            passwordError.value = null
+                            importStatus.value = if (result.imported > 0) {
+                                "PDF unlocked and saved in private FileKhoj storage. Password was not saved."
+                            } else if (result.failed > 0) {
+                                "Could not import this PDF. The source file was kept unchanged."
+                            } else {
+                                "PDF was already in your library."
+                            }
+                        }
+                    }
+                },
+                onPasswordCancel = {
+                    passwordQueue.value = passwordQueue.value.drop(1)
+                    passwordError.value = null
+                    importStatus.value = "Password-protected PDF skipped. Original file was not changed."
+                },
                 onSearchSubmitted = ::saveSearch,
                 onImportClick = {
                     documentPicker.launch(arrayOf(
@@ -147,8 +180,14 @@ class MainActivity : ComponentActivity() {
 
     private fun openDocument(document: DocumentEntity) {
         try {
+            val documentUri = document.managedPath?.let { path ->
+                val managedFile = File(path)
+                if (managedFile.isFile) FileProvider.getUriForFile(
+                    this, "$packageName.fileprovider", managedFile
+                ) else null
+            } ?: Uri.parse(document.sourceUri)
             val intent = Intent(Intent.ACTION_VIEW).apply {
-                setDataAndType(Uri.parse(document.sourceUri), document.mimeType)
+                setDataAndType(documentUri, document.mimeType)
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
             startActivity(intent)
@@ -166,6 +205,10 @@ private fun FileKhojApp(
     repository: DocumentRepository,
     statusMessage: String?,
     searchHistory: List<String>,
+    passwordRequest: Uri?,
+    passwordError: String?,
+    onPasswordSubmit: (Uri, String) -> Unit,
+    onPasswordCancel: () -> Unit,
     onSearchSubmitted: (String) -> Unit,
     onImportClick: () -> Unit,
     onOpenDocument: (DocumentEntity) -> Unit,
@@ -181,6 +224,7 @@ private fun FileKhojApp(
     var previewMode by remember { mutableStateOf(PreviewMode.MEDIUM) }
     var selectedIds by remember { mutableStateOf<Set<Long>>(emptySet()) }
     var showDeleteConfirmation by remember { mutableStateOf(false) }
+    var passwordText by remember(passwordRequest) { mutableStateOf("") }
     var typeMenuExpanded by remember { mutableStateOf(false) }
     var dateMenuExpanded by remember { mutableStateOf(false) }
     var viewMenuExpanded by remember { mutableStateOf(false) }
@@ -384,6 +428,38 @@ private fun FileKhojApp(
         }
     }
 
+    if (passwordRequest != null) {
+        AlertDialog(
+            onDismissRequest = onPasswordCancel,
+            title = { Text("Unlock protected PDF") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Enter the PDF open password. FileKhoj processes it on this device and does not save the password.")
+                    OutlinedTextField(
+                        value = passwordText,
+                        onValueChange = { passwordText = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("PDF password") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                        keyboardActions = KeyboardActions(onDone = {
+                            onPasswordSubmit(passwordRequest, passwordText)
+                            passwordText = ""
+                        })
+                    )
+                    passwordError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    onPasswordSubmit(passwordRequest, passwordText)
+                    passwordText = ""
+                }) { Text("Unlock & save") }
+            },
+            dismissButton = { TextButton(onClick = onPasswordCancel) { Text("Skip") } }
+        )
+    }
+
     if (showDeleteConfirmation) {
         AlertDialog(
             onDismissRequest = { showDeleteConfirmation = false },
@@ -498,8 +574,13 @@ private fun loadPreviewBitmap(context: Context, document: DocumentEntity): Bitma
                 context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it) }
             }
         } else if (document.mimeType.contains("pdf", true)) {
-            context.contentResolver.openFileDescriptor(uri, "r")?.use { descriptor ->
-                PdfRenderer(descriptor).use { renderer ->
+            val descriptor = document.managedPath?.let { path ->
+                val managedFile = File(path)
+                if (managedFile.isFile) ParcelFileDescriptor.open(managedFile, ParcelFileDescriptor.MODE_READ_ONLY)
+                else null
+            } ?: context.contentResolver.openFileDescriptor(uri, "r")
+            descriptor?.use { pdfDescriptor ->
+                PdfRenderer(pdfDescriptor).use { renderer ->
                     if (renderer.pageCount == 0) null else renderer.openPage(0).use { page ->
                         val width = 900
                         val height = (width.toFloat() * page.height / page.width).toInt().coerceAtLeast(1)
