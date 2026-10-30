@@ -98,7 +98,10 @@ fun PdfEditorScreen(
             val previewMap = withContext(Dispatchers.IO) {
                 buildMap {
                     for (index in 0 until minOf(loaded.pageCount, 48)) {
-                        put(index, loaded.renderThumbnail(index, 150))
+                        val thumbnail = runCatching {
+                            loaded.renderThumbnail(index, 150)
+                        }.getOrNull()
+                        if (thumbnail != null) put(index, thumbnail)
                     }
                 }
             }
