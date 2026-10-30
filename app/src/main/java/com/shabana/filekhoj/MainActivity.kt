@@ -64,7 +64,6 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -1027,9 +1026,6 @@ private fun DocumentRow(
         value = if (mode == PreviewMode.DETAILS) null else withContext(Dispatchers.IO) {
             loadPreviewBitmap(context, document)
         }
-    }
-    DisposableEffect(bitmap) {
-        onDispose { bitmap?.takeIf { !it.isRecycled }?.recycle() }
     }
     Card(
         modifier = Modifier.fillMaxWidth(),
