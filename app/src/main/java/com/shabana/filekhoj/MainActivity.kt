@@ -82,6 +82,7 @@ import androidx.core.content.FileProvider
 import androidx.lifecycle.lifecycleScope
 import com.shabana.filekhoj.data.DocumentEntity
 import com.shabana.filekhoj.data.DocumentRepository
+import com.shabana.filekhoj.pdf.PdfEditorScreen
 import java.io.File
 import java.text.DateFormat
 import java.util.Date
@@ -105,6 +106,8 @@ private enum class PreviewMode(val label: String) {
 
 class MainActivity : ComponentActivity() {
     private lateinit var documentPicker: ActivityResultLauncher<Array<String>>
+    private lateinit var pdfExportLauncher: ActivityResultLauncher<String>
+    private var pendingPdfExportFile: File? = null
     private lateinit var repository: DocumentRepository
     private val importStatus = mutableStateOf<String?>(null)
     private val searchHistory = mutableStateOf<List<String>>(emptyList())
@@ -139,6 +142,52 @@ class MainActivity : ComponentActivity() {
                     if (result.passwordRequiredUris.isNotEmpty()) {
                         append(" • password required for ${result.passwordRequiredUris.size} PDF(s)")
                     }
+                }
+            }
+        }
+
+
+        pdfExportLauncher = registerForActivityResult(
+            ActivityResultContracts.CreateDocument("application/pdf")
+        ) { destinationUri ->
+            val outputFile = pendingPdfExportFile
+            pendingPdfExportFile = null
+            if (destinationUri == null) {
+                outputFile?.delete()
+                importStatus.value = "PDF copy export cancelled. The original document is unchanged."
+                return@registerForActivityResult
+            }
+            if (outputFile == null || !outputFile.isFile) {
+                importStatus.value = "PDF export file is no longer available. Please try again."
+                return@registerForActivityResult
+            }
+            lifecycleScope.launch {
+                try {
+                    withContext(Dispatchers.IO) {
+                        val destination = contentResolver.openOutputStream(destinationUri, "w")
+                            ?: throw IllegalStateException("The selected save location cannot be written.")
+                        destination.use { output ->
+                            outputFile.inputStream().use { input -> input.copyTo(output) }
+                        }
+                    }
+                    try {
+                        contentResolver.takePersistableUriPermission(
+                            destinationUri,
+                            Intent.FLAG_GRANT_READ_URI_PERMISSION
+                        )
+                    } catch (_: SecurityException) {
+                        // Some document providers do not offer persistable grants.
+                    }
+                    val result = repository.importDocuments(listOf(destinationUri))
+                    importStatus.value = when {
+                        result.imported > 0 -> "Edited PDF saved and added to your FileKhoj library."
+                        result.alreadyPresent > 0 -> "Edited PDF saved. It is already present in your library."
+                        else -> "PDF saved to the selected location, but FileKhoj could not add it to the library."
+                    }
+                } catch (error: Exception) {
+                    importStatus.value = error.message ?: "Could not save the edited PDF copy."
+                } finally {
+                    outputFile.delete()
                 }
             }
         }
@@ -183,8 +232,21 @@ class MainActivity : ComponentActivity() {
                     ))
                 },
                 onOpenDocument = ::openDocument,
+                onPdfExport = ::launchPdfExport,
                 onStatus = { importStatus.value = it }
             )
+        }
+    }
+
+    private fun launchPdfExport(file: File) {
+        pendingPdfExportFile?.delete()
+        pendingPdfExportFile = file
+        try {
+            pdfExportLauncher.launch(file.name)
+        } catch (error: Exception) {
+            pendingPdfExportFile = null
+            file.delete()
+            importStatus.value = error.message ?: "Could not open the PDF save dialog."
         }
     }
 
@@ -235,6 +297,7 @@ private fun FileKhojApp(
     onSearchSubmitted: (String) -> Unit,
     onImportClick: () -> Unit,
     onOpenDocument: (DocumentEntity) -> Unit,
+    onPdfExport: (File) -> Unit,
     onStatus: (String) -> Unit
 ) {
     var query by remember { mutableStateOf("") }
@@ -249,6 +312,7 @@ private fun FileKhojApp(
     var previewMode by remember { mutableStateOf(PreviewMode.MEDIUM) }
     var selectedIds by remember { mutableStateOf<Set<Long>>(emptySet()) }
     var editingDocument by remember { mutableStateOf<DocumentEntity?>(null) }
+    var editingPdfDocument by remember { mutableStateOf<DocumentEntity?>(null) }
     var editName by remember(editingDocument) { mutableStateOf(editingDocument?.displayName.orEmpty()) }
     var editCategory by remember(editingDocument) { mutableStateOf(editingDocument?.category.orEmpty()) }
     var passwordText by remember(passwordRequest) { mutableStateOf("") }
@@ -694,6 +758,7 @@ private fun FileKhojApp(
                                 },
                                 onClick = { onOpenDocument(document) },
                                 onEdit = { editingDocument = document },
+                                onEditPdf = { editingPdfDocument = document },
                                 onDelete = { selectedIds = setOf(document.id); showDeleteConfirmation = true },
                                 onFavourite = {
                                     scope.launch { repository.setFavourite(document.id, !document.isFavourite) }
@@ -704,6 +769,16 @@ private fun FileKhojApp(
                 }
             }
         }
+    }
+
+
+    editingPdfDocument?.let { selectedPdf ->
+        PdfEditorScreen(
+            context = context,
+            document = selectedPdf,
+            onClose = { editingPdfDocument = null },
+            onSaveCopy = onPdfExport
+        )
     }
 
     if (showRegistration) {
@@ -1011,6 +1086,7 @@ private fun DocumentRow(
     onSelectedChange: (Boolean) -> Unit,
     onClick: () -> Unit,
     onEdit: () -> Unit,
+    onEditPdf: () -> Unit,
     onDelete: () -> Unit,
     onFavourite: () -> Unit
 ) {
@@ -1092,9 +1168,30 @@ private fun DocumentRow(
                 }
                 Text(signatureLabel, style = MaterialTheme.typography.labelSmall, color = Color(0xFF66766D))
             }
+            var moreActionsExpanded by remember(document.id) { mutableStateOf(false) }
             Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
-                TextButton(onClick = onEdit) { Text("Edit") }
-                TextButton(onClick = onDelete) { Text("Remove", color = Color(0xFFB3453B)) }
+                Box {
+                    TextButton(onClick = { moreActionsExpanded = true }) { Text("More") }
+                    DropdownMenu(
+                        expanded = moreActionsExpanded,
+                        onDismissRequest = { moreActionsExpanded = false }
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("Edit details") },
+                            onClick = { moreActionsExpanded = false; onEdit() }
+                        )
+                        if (isPdf) {
+                            DropdownMenuItem(
+                                text = { Text("Edit PDF pages") },
+                                onClick = { moreActionsExpanded = false; onEditPdf() }
+                            )
+                        }
+                        DropdownMenuItem(
+                            text = { Text("Remove from library") },
+                            onClick = { moreActionsExpanded = false; onDelete() }
+                        )
+                    }
+                }
                 Button(onClick = onClick, shape = RoundedCornerShape(50),
                     colors = androidx.compose.material3.ButtonDefaults.buttonColors(
                         containerColor = Color(0xFF07583D))) { Text("Open") }
