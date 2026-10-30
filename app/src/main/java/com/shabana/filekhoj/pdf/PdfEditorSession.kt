@@ -31,7 +31,7 @@ class PdfEditorSession private constructor(
     fun renderThumbnail(pageIndex: Int, maxDimension: Int = 150): Bitmap {
         checkOpen()
         require(pageIndex in 0 until pageCount) { "Page number is out of range." }
-        require(maxDimension in 64..512) { "Thumbnail dimension is out of range." }
+        require(maxDimension in 64..1200) { "Preview dimension is out of range." }
         val cropBox = document.getPage(pageIndex).cropBox
         val longestSide = maxOf(cropBox.width, cropBox.height).coerceAtLeast(1f)
         val scale = (maxDimension / longestSide).coerceIn(0.1f, 2.0f)
