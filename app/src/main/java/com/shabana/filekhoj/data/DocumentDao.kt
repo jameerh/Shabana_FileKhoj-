@@ -6,6 +6,7 @@ import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Update
+import androidx.room.Transaction
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -59,6 +60,13 @@ interface DocumentDao {
 
     @Query("DELETE FROM documents WHERE id IN (:ids)")
     suspend fun deleteByIds(ids: List<Long>): Int
+
+    @Transaction
+    suspend fun deleteDocumentCompletely(id: Long): Int {
+        deleteExtractedText(id)
+        deleteFullTextIndex(id)
+        return deleteByIds(listOf(id))
+    }
 
     @Query("UPDATE documents SET isFavourite = :favourite WHERE id = :id")
     suspend fun setFavourite(id: Long, favourite: Boolean)
