@@ -133,7 +133,11 @@ fun PdfEditorScreen(
     }
 
     DisposableEffect(session) {
-        onDispose { session?.close() }
+        // Capture the session associated with this effect key. Reading the mutable
+        // session state inside onDispose can resolve to the newly assigned session
+        // when the key changes (null -> loaded), closing it immediately after load.
+        val sessionToClose = session
+        onDispose { sessionToClose?.close() }
     }
 
     fun updatePages(updated: List<PdfEditorPage>) {
