@@ -106,8 +106,6 @@ private enum class PreviewMode(val label: String) {
 
 class MainActivity : ComponentActivity() {
     private lateinit var documentPicker: ActivityResultLauncher<Array<String>>
-    private lateinit var pdfExportLauncher: ActivityResultLauncher<String>
-    private var pendingPdfExportFile: File? = null
     private lateinit var repository: DocumentRepository
     private val importStatus = mutableStateOf<String?>(null)
     private val searchHistory = mutableStateOf<List<String>>(emptyList())
@@ -147,50 +145,6 @@ class MainActivity : ComponentActivity() {
         }
 
 
-        pdfExportLauncher = registerForActivityResult(
-            ActivityResultContracts.CreateDocument("application/pdf")
-        ) { destinationUri ->
-            val outputFile = pendingPdfExportFile
-            pendingPdfExportFile = null
-            if (destinationUri == null) {
-                outputFile?.delete()
-                importStatus.value = "PDF copy export cancelled. The original document is unchanged."
-                return@registerForActivityResult
-            }
-            if (outputFile == null || !outputFile.isFile) {
-                importStatus.value = "PDF export file is no longer available. Please try again."
-                return@registerForActivityResult
-            }
-            lifecycleScope.launch {
-                try {
-                    withContext(Dispatchers.IO) {
-                        val destination = contentResolver.openOutputStream(destinationUri, "w")
-                            ?: throw IllegalStateException("The selected save location cannot be written.")
-                        destination.use { output ->
-                            outputFile.inputStream().use { input -> input.copyTo(output) }
-                        }
-                    }
-                    try {
-                        contentResolver.takePersistableUriPermission(
-                            destinationUri,
-                            Intent.FLAG_GRANT_READ_URI_PERMISSION
-                        )
-                    } catch (_: SecurityException) {
-                        // Some document providers do not offer persistable grants.
-                    }
-                    val result = repository.importDocuments(listOf(destinationUri))
-                    importStatus.value = when {
-                        result.imported > 0 -> "Edited PDF saved and added to your FileKhoj library."
-                        result.alreadyPresent > 0 -> "Edited PDF saved. It is already present in your library."
-                        else -> "PDF saved to the selected location, but FileKhoj could not add it to the library."
-                    }
-                } catch (error: Exception) {
-                    importStatus.value = error.message ?: "Could not save the edited PDF copy."
-                } finally {
-                    outputFile.delete()
-                }
-            }
-        }
 
         setContent {
             FileKhojApp(
@@ -232,21 +186,34 @@ class MainActivity : ComponentActivity() {
                     ))
                 },
                 onOpenDocument = ::openDocument,
-                onPdfExport = ::launchPdfExport,
+                onPdfSaved = ::importSavedPdf,
                 onStatus = { importStatus.value = it }
             )
         }
     }
 
-    private fun launchPdfExport(file: File) {
-        pendingPdfExportFile?.delete()
-        pendingPdfExportFile = file
+    private fun importSavedPdf(uri: Uri) {
         try {
-            pdfExportLauncher.launch(file.name)
-        } catch (error: Exception) {
-            pendingPdfExportFile = null
-            file.delete()
-            importStatus.value = error.message ?: "Could not open the PDF save dialog."
+            contentResolver.takePersistableUriPermission(
+                uri,
+                Intent.FLAG_GRANT_READ_URI_PERMISSION
+            )
+        } catch (_: SecurityException) {
+            // The provider may return a temporary read grant; import still proceeds.
+        }
+        lifecycleScope.launch {
+            importStatus.value = "Adding edited PDF to your FileKhoj library…"
+            try {
+                val result = repository.importDocuments(listOf(uri))
+                importStatus.value = when {
+                    result.imported > 0 -> "Edited PDF saved and added to your FileKhoj library."
+                    result.alreadyPresent > 0 -> "Edited PDF saved. It is already present in your library."
+                    result.failed > 0 -> "The PDF was saved, but FileKhoj could not index the saved copy."
+                    else -> "The PDF was saved successfully."
+                }
+            } catch (error: Exception) {
+                importStatus.value = error.message ?: "PDF saved, but could not be added to the library."
+            }
         }
     }
 
@@ -297,7 +264,7 @@ private fun FileKhojApp(
     onSearchSubmitted: (String) -> Unit,
     onImportClick: () -> Unit,
     onOpenDocument: (DocumentEntity) -> Unit,
-    onPdfExport: (File) -> Unit,
+    onPdfSaved: (Uri) -> Unit,
     onStatus: (String) -> Unit
 ) {
     var query by remember { mutableStateOf("") }
@@ -777,7 +744,7 @@ private fun FileKhojApp(
             context = context,
             document = selectedPdf,
             onClose = { editingPdfDocument = null },
-            onSaveCopy = onPdfExport
+            onSaved = onPdfSaved
         )
     }
 
