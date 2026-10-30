@@ -9,6 +9,7 @@ import org.bouncycastle.cms.jcajce.JcaSimpleSignerInfoVerifierBuilder
 import org.bouncycastle.cert.jcajce.JcaX509CertificateConverter
 import java.io.ByteArrayInputStream
 import java.io.File
+import javax.security.auth.x500.X500Principal
 import java.security.KeyStore
 import java.security.cert.CertPathBuilder
 import java.security.cert.CertStore
@@ -108,19 +109,23 @@ class PdfSignatureVerifier {
             if (signers.isEmpty()) return DocumentEntity.SIGNATURE_STATUS_INVALID
 
             val certificates = cms.certificates
+            val allCertificates = certificates.getMatches(null).map {
+                JcaX509CertificateConverter().getCertificate(it)
+            }
             var untrusted = false
             for (signer in signers) {
-                val matching = certificates.getMatches(signer.sid)
-                if (matching.isEmpty()) return DocumentEntity.SIGNATURE_STATUS_INCOMPLETE
-                val certificate = JcaX509CertificateConverter().getCertificate(matching.first())
+                val signerId = signer.sid
+                val issuerName = signerId.issuer?.toString()
+                val certificate = allCertificates.firstOrNull { candidate ->
+                    candidate.serialNumber == signerId.serialNumber &&
+                        issuerName != null &&
+                        candidate.issuerX500Principal == X500Principal(issuerName)
+                } ?: return DocumentEntity.SIGNATURE_STATUS_INCOMPLETE
+
                 val cryptographicallyValid = signer.verify(
                     JcaSimpleSignerInfoVerifierBuilder().build(certificate)
                 )
                 if (!cryptographicallyValid) return DocumentEntity.SIGNATURE_STATUS_INVALID
-
-                val allCertificates = certificates.getMatches(null).map {
-                    JcaX509CertificateConverter().getCertificate(it)
-                }
                 if (!hasTrustedPath(certificate, allCertificates)) untrusted = true
             }
             if (untrusted) DocumentEntity.SIGNATURE_STATUS_UNTRUSTED
