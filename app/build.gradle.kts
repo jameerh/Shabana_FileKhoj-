@@ -40,7 +40,7 @@ dependencies {
     implementation("androidx.work:work-runtime-ktx:2.10.0")
     // Local PDF parsing, decryption and text extraction; no document upload/network required.
     implementation("com.tom-roush:pdfbox-android:2.0.27.0")
-    implementation("org.bouncycastle:bcpkix-jdk18on:1.78.1")
+    implementation("org.bouncycastle:bcpkix-jdk15to18:1.72")
     // Bundled on-device OCR models: core Latin plus Devanagari (Hindi/Marathi).
     implementation("com.google.mlkit:text-recognition:16.0.1")
     implementation("com.google.mlkit:text-recognition-devanagari:16.0.1")
