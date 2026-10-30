@@ -87,10 +87,15 @@ class PdfSignatureVerifier {
             if (byteRange == null || byteRange.size != 4 ||
                 byteRange[0] != 0 ||
                 byteRange[1] < 0 ||
-                byteRange[2] < byteRange[1] ||
+                byteRange[2].toLong() < byteRange[0].toLong() + byteRange[1].toLong() ||
                 byteRange[3] < 0 ||
                 byteRange[2].toLong() + byteRange[3].toLong() > pdfBytes.size.toLong()
             ) return DocumentEntity.SIGNATURE_STATUS_INVALID
+            // An incremental update after the signed revision needs separate revision
+            // analysis; do not claim a fully verified, unchanged document in that case.
+            if (byteRange[2].toLong() + byteRange[3].toLong() < pdfBytes.size.toLong()) {
+                return DocumentEntity.SIGNATURE_STATUS_INCOMPLETE
+            }
 
             val signedContent = signature.getSignedContent(pdfBytes)
             val paddedContents = signature.getContents(pdfBytes)
