@@ -247,8 +247,10 @@ private fun FileKhojApp(
 
     LaunchedEffect(query, documents, repository) {
         fullTextMatchQuery = query
-        fullTextMatchIds = if (query.isBlank()) emptySet()
-        else repository.searchDocuments(query).map { it.id }.toSet()
+        fullTextMatchIds = emptySet()
+        if (query.isNotBlank()) {
+            fullTextMatchIds = repository.searchDocuments(query).map { it.id }.toSet()
+        }
     }
 
     val categoryOptions = remember(documents) {
