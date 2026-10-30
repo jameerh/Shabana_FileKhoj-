@@ -6,6 +6,7 @@ import android.net.Uri
 import com.shabana.filekhoj.data.DocumentEntity
 import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
 import com.tom_roush.pdfbox.pdmodel.PDDocument
+import com.tom_roush.pdfbox.io.MemoryUsageSetting
 import com.tom_roush.pdfbox.rendering.PDFRenderer
 import java.io.Closeable
 import java.io.File
@@ -69,7 +70,7 @@ class PdfEditorSession private constructor(
             orderedPages.forEach(document::addPage)
             document.save(outputFile)
 
-            PDDocument.load(outputFile).use { verification ->
+            PDDocument.load(outputFile, memoryUsageSetting(context)).use { verification ->
                 check(verification.numberOfPages == pages.size) {
                     "The exported PDF page count did not match the editor."
                 }
@@ -113,6 +114,19 @@ class PdfEditorSession private constructor(
 
     companion object {
         private const val MAX_SOURCE_BYTES = 250L * 1024L * 1024L
+        private const val MAX_PDFBOX_MEMORY_BYTES = 16L * 1024L * 1024L
+        private const val MAX_PDFBOX_STORAGE_BYTES = 512L * 1024L * 1024L
+
+        private fun memoryUsageSetting(context: Context): MemoryUsageSetting {
+            val scratchDirectory = File(context.cacheDir, "filekhoj_pdf_scratch")
+            if (!scratchDirectory.exists() && !scratchDirectory.mkdirs()) {
+                throw IllegalStateException("Could not create the PDF processing scratch directory.")
+            }
+            return MemoryUsageSetting.setupMixed(
+                MAX_PDFBOX_MEMORY_BYTES,
+                MAX_PDFBOX_STORAGE_BYTES
+            ).setTempDir(scratchDirectory)
+        }
 
         fun open(context: Context, source: DocumentEntity): PdfEditorSession {
             val appContext = context.applicationContext
@@ -153,7 +167,7 @@ class PdfEditorSession private constructor(
                     }
                 }
 
-                val pdf = PDDocument.load(workingFile)
+                val pdf = PDDocument.load(workingFile, memoryUsageSetting(appContext))
                 require(pdf.numberOfPages > 0) { "This PDF does not contain any pages." }
                 require(pdf.numberOfPages <= 10_000) {
                     "This PDF has more than 10,000 pages and cannot be edited safely on this device."
