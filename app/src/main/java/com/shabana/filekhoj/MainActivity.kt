@@ -1227,14 +1227,35 @@ private fun DocumentRow(
                 Text(if (document.isFavourite) "★ Favourite • ${document.indexStatus}" else "Index: ${document.indexStatus}",
                     style = MaterialTheme.typography.labelSmall, color = Color(0xFF496354))
                 val signatureLabel = when (document.signatureStatus) {
-                    DocumentEntity.SIGNATURE_STATUS_VERIFIED -> "✓ Source signature + certificate chain verified (revocation not checked)"
-                    DocumentEntity.SIGNATURE_STATUS_UNTRUSTED -> "⚠ Signature found — certificate untrusted"
-                    DocumentEntity.SIGNATURE_STATUS_INVALID -> "✕ Signature verification failed"
-                    DocumentEntity.SIGNATURE_STATUS_INCOMPLETE -> "Signature verification incomplete"
-                    DocumentEntity.SIGNATURE_STATUS_UNSIGNED -> "No digital signature"
+                    DocumentEntity.SIGNATURE_STATUS_VERIFIED ->
+                        "✓ Verified by Shabana Multi Service Verifier Tool • certificate chain trusted; revocation not checked"
+                    DocumentEntity.SIGNATURE_STATUS_UNTRUSTED ->
+                        "⚠ Signature found • signer certificate is not trusted"
+                    DocumentEntity.SIGNATURE_STATUS_EXPIRED ->
+                        "⚠ Signature found • signer certificate is expired; trusted timestamp not checked"
+                    DocumentEntity.SIGNATURE_STATUS_INVALID ->
+                        "✕ Invalid signature • cryptographic verification failed"
+                    DocumentEntity.SIGNATURE_STATUS_INCOMPLETE ->
+                        "⚠ Signature verification incomplete • document may have changed after signing"
+                    DocumentEntity.SIGNATURE_STATUS_UNSIGNED ->
+                        "No digital signature"
                     else -> "Signature not checked"
                 }
-                Text(signatureLabel, style = MaterialTheme.typography.labelSmall, color = Color(0xFF66766D))
+                val signatureColor = when (document.signatureStatus) {
+                    DocumentEntity.SIGNATURE_STATUS_VERIFIED -> Color(0xFF188038)
+                    DocumentEntity.SIGNATURE_STATUS_INVALID -> Color(0xFFB3261E)
+                    DocumentEntity.SIGNATURE_STATUS_UNTRUSTED,
+                    DocumentEntity.SIGNATURE_STATUS_EXPIRED,
+                    DocumentEntity.SIGNATURE_STATUS_INCOMPLETE -> Color(0xFF9A6700)
+                    else -> Color(0xFF66766D)
+                }
+                Text(
+                    text = signatureLabel,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = signatureColor,
+                    fontWeight = if (document.signatureStatus == DocumentEntity.SIGNATURE_STATUS_VERIFIED)
+                        FontWeight.SemiBold else FontWeight.Normal
+                )
             }
             var moreActionsExpanded by remember(document.id) { mutableStateOf(false) }
             Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
