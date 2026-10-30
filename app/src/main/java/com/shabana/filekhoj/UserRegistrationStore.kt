@@ -136,10 +136,13 @@ class UserRegistrationStore(context: Context) {
         private const val KEY_ADMIN_WHATSAPP = "admin_whatsapp"
 
         fun isValidIndianMobile(value: String): Boolean {
-            val digits = value.filter(Char::isDigit).removePrefix("91").let {
-                if (it.length > 10) it.takeLast(10) else it
+            val digits = value.filter(Char::isDigit)
+            val nationalNumber = when {
+                digits.length == 12 && digits.startsWith("91") -> digits.drop(2)
+                digits.length == 11 && digits.startsWith("0") -> digits.drop(1)
+                else -> digits
             }
-            return digits.matches(Regex("[6-9][0-9]{9}"))
+            return nationalNumber.matches(Regex("[6-9][0-9]{9}"))
         }
 
         fun normalizeMobile(value: String): String {
@@ -150,7 +153,9 @@ class UserRegistrationStore(context: Context) {
         fun normalizeWhatsappNumber(value: String): String {
             val digits = value.filter(Char::isDigit)
             return when {
-                digits.length == 10 -> "91$digits"
+                digits.length == 10 && digits.matches(Regex("[6-9][0-9]{9}")) -> "91$digits"
+                digits.length == 12 && digits.startsWith("91") &&
+                    digits.takeLast(10).matches(Regex("[6-9][0-9]{9}")) -> digits
                 digits.length in 11..15 -> digits
                 else -> ""
             }
