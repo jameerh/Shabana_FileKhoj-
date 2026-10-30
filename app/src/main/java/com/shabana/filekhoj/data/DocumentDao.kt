@@ -52,6 +52,27 @@ interface DocumentDao {
     @Query("UPDATE documents SET indexStatus = :status WHERE id = :id")
     suspend fun updateIndexStatus(id: Long, status: String)
 
+    @Transaction
+    suspend fun saveExtractedContent(
+        id: Long,
+        displayName: String,
+        extractedText: String,
+        pageCount: Int
+    ) {
+        upsertExtractedText(
+            DocumentTextEntity(id, extractedText, System.currentTimeMillis(), pageCount)
+        )
+        upsertFullTextIndex(DocumentFtsEntity(id, displayName, extractedText))
+        updateIndexStatus(id, DocumentEntity.INDEX_STATUS_INDEXED)
+    }
+
+    @Transaction
+    suspend fun clearExtractedContent(id: Long, status: String) {
+        deleteExtractedText(id)
+        deleteFullTextIndex(id)
+        updateIndexStatus(id, status)
+    }
+
     @Update
     suspend fun update(document: DocumentEntity)
 
