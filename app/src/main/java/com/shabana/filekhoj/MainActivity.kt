@@ -46,6 +46,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -549,10 +550,13 @@ private fun DocumentRow(
     onFavourite: () -> Unit
 ) {
     val isPdf = document.mimeType.contains("pdf", true)
-    val bitmap by produceState<Bitmap?>(initialValue = null, document.sourceUri, mode) {
+    val bitmap by produceState<Bitmap?>(initialValue = null, document.sourceUri, document.managedPath, mode) {
         value = if (mode == PreviewMode.DETAILS) null else withContext(Dispatchers.IO) {
             loadPreviewBitmap(context, document)
         }
+    }
+    DisposableEffect(bitmap) {
+        onDispose { bitmap?.takeIf { !it.isRecycled }?.recycle() }
     }
     Card(
         modifier = Modifier.fillMaxWidth(),
