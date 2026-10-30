@@ -32,6 +32,20 @@ class DocumentRepository(context: Context) {
     fun observeDocuments(): Flow<List<DocumentEntity>> = dao.observeAll()
     fun observeCount(): Flow<Int> = dao.observeCount()
 
+    suspend fun searchDocuments(query: String): List<DocumentEntity> = withContext(Dispatchers.IO) {
+        val terms = query.trim().split(Regex("\\s+")).filter(String::isNotBlank)
+        if (terms.isEmpty()) return@withContext emptyList()
+        val ftsQuery = terms.joinToString(" AND ") { term ->
+            "\"${term.replace("\"", "\"\"")}\""
+        }
+        try {
+            dao.searchFullText(ftsQuery)
+        } catch (_: Exception) {
+            // Malformed FTS expressions must never crash the library search.
+            emptyList()
+        }
+    }
+
     suspend fun importDocuments(
         uris: List<Uri>,
         passwordsByUri: Map<String, String> = emptyMap()
