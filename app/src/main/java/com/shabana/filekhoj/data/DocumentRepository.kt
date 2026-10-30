@@ -120,7 +120,7 @@ class DocumentRepository(context: Context) {
                         if (!managedFile.delete()) throw IllegalStateException("Could not remove managed copy")
                     }
                 }
-                if (dao.deleteByIds(listOf(id)) > 0) deleted++
+                if (dao.deleteDocumentCompletely(id) > 0) deleted++
             } catch (_: Exception) {
                 failed++
             }
