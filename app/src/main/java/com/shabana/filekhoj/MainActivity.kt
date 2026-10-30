@@ -224,6 +224,9 @@ private fun FileKhojApp(
     var previewMode by remember { mutableStateOf(PreviewMode.MEDIUM) }
     var selectedIds by remember { mutableStateOf<Set<Long>>(emptySet()) }
     var showDeleteConfirmation by remember { mutableStateOf(false) }
+    var editingDocument by remember { mutableStateOf<DocumentEntity?>(null) }
+    var editName by remember(editingDocument) { mutableStateOf(editingDocument?.displayName.orEmpty()) }
+    var editCategory by remember(editingDocument) { mutableStateOf(editingDocument?.category.orEmpty()) }
     var passwordText by remember(passwordRequest) { mutableStateOf("") }
     var typeMenuExpanded by remember { mutableStateOf(false) }
     var dateMenuExpanded by remember { mutableStateOf(false) }
@@ -410,6 +413,9 @@ private fun FileKhojApp(
                                     selectedIds = if (checked) selectedIds + document.id else selectedIds - document.id
                                 },
                                 onClick = { onOpenDocument(document) },
+                                onEdit = {
+                                    editingDocument = document
+                                },
                                 onDelete = {
                                     scope.launch {
                                         val result = repository.deleteDocuments(listOf(document.id))
@@ -426,6 +432,46 @@ private fun FileKhojApp(
                 }
             }
         }
+    }
+
+    if (editingDocument != null) {
+        AlertDialog(
+            onDismissRequest = { editingDocument = null },
+            title = { Text("Edit document details") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        value = editName,
+                        onValueChange = { editName = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("Display name") },
+                        singleLine = true
+                    )
+                    OutlinedTextField(
+                        value = editCategory,
+                        onValueChange = { editCategory = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("Category (optional)") },
+                        singleLine = true
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val document = editingDocument ?: return@TextButton
+                    scope.launch {
+                        try {
+                            repository.updateUserMetadata(document.id, editName, editCategory)
+                            onStatus("Document details updated.")
+                        } catch (_: IllegalArgumentException) {
+                            onStatus("Display name cannot be empty.")
+                        }
+                        editingDocument = null
+                    }
+                }) { Text("Save") }
+            },
+            dismissButton = { TextButton(onClick = { editingDocument = null }) { Text("Cancel") } }
+        )
     }
 
     if (passwordRequest != null) {
@@ -490,6 +536,7 @@ private fun DocumentRow(
     selected: Boolean,
     onSelectedChange: (Boolean) -> Unit,
     onClick: () -> Unit,
+    onEdit: () -> Unit,
     onDelete: () -> Unit,
     onFavourite: () -> Unit
 ) {
@@ -557,6 +604,7 @@ private fun DocumentRow(
                 Text(signatureLabel, style = MaterialTheme.typography.labelSmall)
             }
             Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
+                TextButton(onClick = onEdit) { Text("Edit") }
                 TextButton(onClick = onDelete) { Text("Remove") }
                 TextButton(onClick = onClick) { Text("Open") }
             }
