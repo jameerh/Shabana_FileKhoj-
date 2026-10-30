@@ -601,7 +601,7 @@ private fun DocumentRow(
                 Text(if (document.isFavourite) "★ Favourite" else "Index: ${document.indexStatus}",
                     style = MaterialTheme.typography.labelSmall)
                 val signatureLabel = when (document.signatureStatus) {
-                    DocumentEntity.SIGNATURE_STATUS_VERIFIED -> "✓ Digitally signed — verified"
+                    DocumentEntity.SIGNATURE_STATUS_VERIFIED -> "✓ Source signature + certificate chain verified (revocation not checked)"
                     DocumentEntity.SIGNATURE_STATUS_UNTRUSTED -> "⚠ Signature found — certificate untrusted"
                     DocumentEntity.SIGNATURE_STATUS_INVALID -> "✕ Signature verification failed"
                     DocumentEntity.SIGNATURE_STATUS_INCOMPLETE -> "Signature verification incomplete"
