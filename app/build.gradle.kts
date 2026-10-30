@@ -5,7 +5,7 @@ plugins {
     id("com.google.devtools.ksp")
 }
 android {
-    namespace = "in.shabana.filekhoj"
+    namespace = "com.shabana.filekhoj"
     compileSdk = 35
     defaultConfig {
         applicationId = "in.shabana.filekhoj"
