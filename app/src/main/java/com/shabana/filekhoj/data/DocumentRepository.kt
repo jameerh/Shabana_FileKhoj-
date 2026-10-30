@@ -123,6 +123,11 @@ class DocumentRepository(context: Context) {
         dao.setFavourite(id, favourite)
     }
 
+    suspend fun updateUserMetadata(id: Long, displayName: String, category: String?) = withContext(Dispatchers.IO) {
+        require(displayName.isNotBlank()) { "Document name cannot be empty." }
+        dao.updateUserMetadata(id, displayName.trim(), category?.trim()?.takeIf(String::isNotBlank))
+    }
+
     private fun queryMetadata(uri: Uri): SourceMetadata {
         var displayName = uri.lastPathSegment?.substringAfterLast('/') ?: "Untitled document"
         var sizeBytes = 0L
