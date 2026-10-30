@@ -48,6 +48,7 @@ data class DocumentEntity(
         const val SIGNATURE_STATUS_UNSIGNED = "UNSIGNED"
         const val SIGNATURE_STATUS_VERIFIED = "VERIFIED"
         const val SIGNATURE_STATUS_UNTRUSTED = "UNTRUSTED"
+        const val SIGNATURE_STATUS_EXPIRED = "EXPIRED"
         const val SIGNATURE_STATUS_INVALID = "INVALID"
         const val SIGNATURE_STATUS_INCOMPLETE = "INCOMPLETE"
     }
