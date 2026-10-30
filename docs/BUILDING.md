@@ -32,7 +32,7 @@ cd Shabana_FileKhoj-
 6. Select the `app` run configuration and press **Run**.
 
 ## Gradle wrapper
-The wrapper JAR and scripts are not committed yet. From the repository root, use an installed Gradle 8.13 to generate them:
+The wrapper properties are pinned to Gradle 8.13, but the wrapper JAR and scripts must be committed for a clean clone. In the current working copy, generate or restore them using the existing working project's Gradle wrapper. If Gradle 8.13 is installed system-wide, you can instead run:
 ```powershell
 gradle wrapper --gradle-version 8.13
 ```
