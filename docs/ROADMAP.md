@@ -11,25 +11,26 @@
 - Room v1-to-v2 migration added.
 - **Validation pending:** source changes must compile and run on a device before this milestone is called device-verified.
 
-## S1 — Secure encrypted-PDF import
+## S1 — Secure encrypted-PDF import (implemented in source; validation pending)
 - Password prompt, local decryption, app-private managed copy, temp-file cleanup, source/derivative relationship.
+- Passwords are not persisted; original source is retained; wrong password and cancellation do not create a library entry.
 - Never persist passwords. Never replace or rewrite signed original bytes.
 - Wrong-password, cancel, unsupported encryption, inaccessible URI, and low-storage handling.
 - Exit: protected PDF can be reopened from app-private copy without re-entering its password; original remains unchanged; sensitive data never appears in logs.
 
-## S2 — Digital signature verification
-- Signature discovery and cryptographic validation against original signed byte ranges.
+## S2 — Digital signature verification (initial implementation; revocation/timestamp work remains)
+- Signature discovery, CMS cryptographic validation against original signed byte ranges, and Android system certificate-path evaluation.
 - Certificate chain, timestamp and revocation status where available.
 - Honest VERIFIED / UNTRUSTED / INVALID / INCOMPLETE / UNSIGNED / UNKNOWN UI.
 - Exit: test fixtures for valid, tampered, expired/untrusted, unsigned, and partially validated PDFs; no false green ticks.
 
-## S3 — Searchable content
-- PDF embedded-text extraction with page numbers and SQLite FTS5.
+## S3 — Searchable content (initial implementation; validation pending)
+- PDF embedded-text extraction with page markers, plain-text extraction, SQLite FTS4, and a local query path.
 - Snippets and page-aware search results; transactional reindex and stale-index cleanup.
 - Exit: query finds text inside PDFs and opens the relevant source/page without reading files on the query path.
 
-## S4 — OCR and durable background processing
-- On-device OCR for images and scanned PDFs with language support, bounded concurrency, progress, retries and recovery.
+## S4 — OCR and durable background processing (initial implementation; validation pending)
+- Bundled offline Latin and Devanagari OCR for images and scanned PDF pages, bounded file/page/text processing, and WorkManager retries.
 - WorkManager queue, cancellation and idempotent jobs.
 - Exit: scanned English/Hindi/Marathi test corpus becomes searchable offline; process death does not create duplicate/stale records.
 
