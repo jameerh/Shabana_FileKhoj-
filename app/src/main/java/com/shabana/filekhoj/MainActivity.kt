@@ -288,7 +288,8 @@ private fun FileKhojApp(
         // Selection is scoped to visible results: hidden rows never remain selected for bulk actions.
         selectedIds = selectedIds.intersect(visibleIds)
     }
-    val allVisibleSelected = visibleIds.isNotEmpty() && selectedIds.containsAll(visibleIds)
+    val visibleSelectedIds = selectedIds.intersect(visibleIds)
+    val allVisibleSelected = visibleIds.isNotEmpty() && visibleSelectedIds.containsAll(visibleIds)
 
     MaterialTheme {
         Surface(Modifier.fillMaxSize()) {
@@ -392,8 +393,8 @@ private fun FileKhojApp(
                     })
                     Text(if (allVisibleSelected) "Deselect visible" else "Select all visible",
                         modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
-                    if (selectedIds.isNotEmpty()) {
-                        Text("${selectedIds.size} selected", style = MaterialTheme.typography.labelMedium)
+                    if (visibleSelectedIds.isNotEmpty()) {
+                        Text("${visibleSelectedIds.size} selected", style = MaterialTheme.typography.labelMedium)
                         TextButton(onClick = { showDeleteConfirmation = true }) { Text("Delete") }
                         TextButton(onClick = { selectedIds = emptySet() }) { Text("Clear") }
                     }
@@ -517,10 +518,10 @@ private fun FileKhojApp(
         AlertDialog(
             onDismissRequest = { showDeleteConfirmation = false },
             title = { Text("Remove selected documents?") },
-            text = { Text("This removes ${selectedIds.size} item(s) from the FileKhoj library. Original documents selected from your device or cloud provider will not be deleted.") },
+            text = { Text("This removes ${visibleSelectedIds.size} item(s) from the FileKhoj library. Original documents selected from your device or cloud provider will not be deleted.") },
             confirmButton = {
                 TextButton(onClick = {
-                    val ids = selectedIds.toList()
+                    val ids = selectedIds.intersect(visibleIds).toList()
                     showDeleteConfirmation = false
                     scope.launch {
                         val result = repository.deleteDocuments(ids)
