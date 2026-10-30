@@ -53,7 +53,7 @@ Kotlin, Jetpack Compose, Material 3, Room/SQLite, SQLite FTS5, WorkManager, Andr
 
 ## Status
 
-Milestone 1 implemented: Room document metadata, multi-file import through Android's system picker, persistent URI permissions where supported, and a filename-filtered local library. Full-text indexing, PDF extraction, OCR, and local device verification remain outstanding. See the roadmap for implementation phases and measurable acceptance criteria.
+Implemented in source: Room document metadata with v1-to-v3 migrations; multi-file import; password-aware PDF handling with app-private unlocked derivatives; PDF signature/CMS checks and certificate-path evaluation; CRUD for library entries and user metadata; visible-result-scoped bulk selection; file/date/signature/favourite filters; three recent searches; four preview densities; PDF first-page rendering; background PDF/text indexing; FTS4 search; and bundled offline Latin/Devanagari OCR. These features are not yet device-verified. Certificate revocation and trusted timestamp evaluation remain incomplete; scanned-document OCR and signature status must not be overclaimed. See the roadmap for acceptance criteria.
 
 ## License
 
