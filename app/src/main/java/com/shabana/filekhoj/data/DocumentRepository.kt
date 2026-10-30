@@ -29,7 +29,7 @@ class DocumentRepository(context: Context) {
             var alreadyPresent = 0
             var failed = 0
 
-            uris.distinctBy(Uri::toString).forEach { uri ->
+            uris.distinctBy { it.toString() }.forEach { uri ->
                 try {
                     val metadata = queryMetadata(uri)
                     val rowId = dao.insert(
@@ -59,7 +59,7 @@ class DocumentRepository(context: Context) {
 
         resolver.query(
             uri,
-            arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE, "last_modified"),
+            arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE),
             null,
             null,
             null
@@ -75,10 +75,8 @@ class DocumentRepository(context: Context) {
                     sizeBytes = cursor.getLong(sizeIndex).coerceAtLeast(0L)
                 }
 
-                val modifiedIndex = cursor.getColumnIndex("last_modified")
-                if (modifiedIndex >= 0 && !cursor.isNull(modifiedIndex)) {
-                    lastModified = cursor.getLong(modifiedIndex).takeIf { it > 0L }
-                }
+                // OpenableColumns does not standardize a last-modified column.
+                // Leave this nullable rather than depending on provider-specific columns.
             }
         }
 
