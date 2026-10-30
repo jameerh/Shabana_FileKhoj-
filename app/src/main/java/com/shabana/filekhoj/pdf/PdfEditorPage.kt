@@ -16,6 +16,39 @@ object PdfEditorPageOperations {
         return pages.toMutableList().apply { add(toIndex, removeAt(fromIndex)) }
     }
 
+    fun moveSelected(
+        pages: List<PdfEditorPage>,
+        selectedSourceIndices: Set<Int>,
+        direction: Int
+    ): List<PdfEditorPage> {
+        require(direction == -1 || direction == 1) {
+            "Move direction must be -1 (up) or 1 (down)."
+        }
+        if (selectedSourceIndices.isEmpty()) return pages
+
+        val result = pages.toMutableList()
+        if (direction < 0) {
+            for (index in 1 until result.size) {
+                val currentSelected = result[index].sourceIndex in selectedSourceIndices
+                val previousSelected = result[index - 1].sourceIndex in selectedSourceIndices
+                if (currentSelected && !previousSelected) {
+                    val item = result.removeAt(index)
+                    result.add(index - 1, item)
+                }
+            }
+        } else {
+            for (index in result.lastIndex - 1 downTo 0) {
+                val currentSelected = result[index].sourceIndex in selectedSourceIndices
+                val nextSelected = result[index + 1].sourceIndex in selectedSourceIndices
+                if (currentSelected && !nextSelected) {
+                    val item = result.removeAt(index)
+                    result.add(index + 1, item)
+                }
+            }
+        }
+        return result
+    }
+
     fun rotate(
         pages: List<PdfEditorPage>,
         selectedSourceIndices: Set<Int>,
