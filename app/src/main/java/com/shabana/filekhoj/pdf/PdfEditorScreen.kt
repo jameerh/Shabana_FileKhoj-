@@ -82,6 +82,7 @@ fun PdfEditorScreen(
     var showDeleteConfirmation by remember { mutableStateOf(false) }
     var showExitOptions by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<String?>(null) }
+    var saveError by remember { mutableStateOf<String?>(null) }
     var loadError by remember { mutableStateOf<String?>(null) }
     var previewBitmap by remember { mutableStateOf<Bitmap?>(null) }
     val scope = rememberCoroutineScope()
@@ -149,29 +150,44 @@ fun PdfEditorScreen(
 
 
     fun saveAsCopy() {
-        if (isSaving) return
+        Log.i("ShabanaFileKhoj", "PDF editor: Save as Copy tapped")
+        if (isSaving) {
+            message = "A PDF save is already in progress. Complete or cancel the Android Save As screen first."
+            return
+        }
+
         val activeSession = session
         if (activeSession == null) {
-            message = "The PDF is not ready to save yet. Wait until page loading is complete."
-            Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+            val detail = "The PDF editor session is not ready. Close and reopen the PDF, then try again."
+            message = detail
+            saveError = detail
+            Toast.makeText(context, detail, Toast.LENGTH_LONG).show()
             return
         }
 
         isSaving = true
-        message = "Step 1 of 2: Creating and checking the edited PDF…"
+        saveError = null
+        message = "Save requested. Preparing the edited PDF…"
+        Toast.makeText(context, "Preparing your edited PDF…", Toast.LENGTH_SHORT).show()
+        Log.i("ShabanaFileKhoj", "PDF editor: starting PDF generation")
         val currentPages = pages.toList()
+
         scope.launch {
             var outputFile: File? = null
             try {
+                message = "Step 1 of 2: Creating and checking the edited PDF…"
                 outputFile = withContext(Dispatchers.IO) {
                     activeSession.exportCopy(currentPages)
                 }
                 check(outputFile.isFile && outputFile.length() > 5L) {
-                    "The PDF export finished without creating a valid file."
+                    "PDF generation completed, but the output file is missing or empty."
                 }
-                message = "Step 2 of 2: Opening Android's Save As picker…"
-                Toast.makeText(context, "PDF ready. Choose a folder and tap Save.", Toast.LENGTH_LONG).show()
 
+                message = "Step 2 of 2: Opening Android's Save As screen…"
+                Log.i(
+                    "ShabanaFileKhoj",
+                    "PDF editor: generated \${outputFile.length()} bytes; requesting Android Save As"
+                )
                 val fileForHost = outputFile
                 onSaveCopy(fileForHost) { success, feedback ->
                     isSaving = false
@@ -181,10 +197,15 @@ fun PdfEditorScreen(
                         redoStack = emptyList()
                         selectedPageIndices = emptySet()
                         message = feedback ?: "Edited PDF saved successfully."
+                        saveError = null
                         Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+                        Log.i("ShabanaFileKhoj", "PDF editor: Save As completed successfully")
                     } else {
-                        message = feedback ?: "PDF was not saved. Your edits are still open."
-                        Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+                        val detail = feedback ?: "PDF was not saved. Your edits are still open."
+                        message = detail
+                        saveError = detail
+                        Toast.makeText(context, detail, Toast.LENGTH_LONG).show()
+                        Log.e("ShabanaFileKhoj", "PDF editor: Save As failed: \$detail")
                     }
                 }
                 outputFile = null // ownership transfers to MainActivity
@@ -192,9 +213,11 @@ fun PdfEditorScreen(
                 outputFile?.delete()
                 isSaving = false
                 val detail = error.message ?: error.javaClass.simpleName
-                message = "Could not save PDF: $detail"
+                val failure = "Could not save PDF: \$detail"
+                message = failure
+                saveError = failure
                 Log.e("ShabanaFileKhoj", "PDF editor Save as Copy failed", error)
-                Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+                Toast.makeText(context, failure, Toast.LENGTH_LONG).show()
             }
         }
     }
@@ -487,16 +510,39 @@ fun PdfEditorScreen(
                                 }
                             }
 
-                            message?.let {
-                                Text(it, style = MaterialTheme.typography.bodySmall, color = Color(0xFF52685B))
+                            message?.let { status ->
+                                Card(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = RoundedCornerShape(10.dp),
+                                    colors = CardDefaults.cardColors(
+                                        containerColor = if (
+                                            status.contains("failed", ignoreCase = true) ||
+                                            status.contains("could not", ignoreCase = true) ||
+                                            status.contains("not saved", ignoreCase = true) ||
+                                            status.contains("cancelled", ignoreCase = true)
+                                        ) Color(0xFFFFEDEA) else Color(0xFFEAF1EC)
+                                    )
+                                ) {
+                                    Text(
+                                        status,
+                                        modifier = Modifier.fillMaxWidth().padding(10.dp),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = if (
+                                            status.contains("failed", ignoreCase = true) ||
+                                            status.contains("could not", ignoreCase = true) ||
+                                            status.contains("not saved", ignoreCase = true) ||
+                                            status.contains("cancelled", ignoreCase = true)
+                                        ) Color(0xFF9C241B) else editorGreen
+                                    )
+                                }
                             }
                             Text(
                                 "Your original PDF is never overwritten. Save creates a separate copy. Editing a digitally signed file may invalidate its signature on the edited copy.",
                                 style = MaterialTheme.typography.labelSmall, color = Color(0xFF64756C)
                             )
                             Button(
-                                onClick = ::saveAsCopy,
-                                enabled = session != null && !isSaving && pages.isNotEmpty(),
+                                onClick = { saveAsCopy() },
+                                enabled = !isLoading && loadError == null && !isSaving && pages.isNotEmpty(),
                                 modifier = Modifier.fillMaxWidth()
                             ) {
                                 Text(
@@ -553,6 +599,17 @@ fun PdfEditorScreen(
                     }) { Text("Discard") }
                     TextButton(onClick = { showExitOptions = false }) { Text("Continue editing") }
                 }
+            }
+        )
+    }
+
+    saveError?.let { errorText ->
+        AlertDialog(
+            onDismissRequest = { saveError = null },
+            title = { Text("Could not save PDF") },
+            text = { Text(errorText, color = MaterialTheme.colorScheme.error) },
+            confirmButton = {
+                TextButton(onClick = { saveError = null }) { Text("OK") }
             }
         )
     }
