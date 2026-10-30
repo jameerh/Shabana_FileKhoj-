@@ -1,29 +1,43 @@
 # Product roadmap
 
-## Completed — Milestone 1: Document metadata and import foundation
-- Room `documents` table with unique source-URI constraint and basic query indexes.
-- Metadata DAO exposes recent-first document and count flows.
-- Android system picker supports multi-select for PDFs, images, text, and common Word document MIME types.
-- Read permission is persisted when the document provider supports it.
-- Library displays imported metadata and supports filename filtering and opening the original URI.
-- Import records are persisted locally; extraction and full-text indexing are not implemented yet.
+## Implemented source milestone — Library management foundation
+- Room metadata, URI-based multi-import, duplicate detection and recent-first list.
+- CRUD support for removing entries without deleting provider originals.
+- Multi-select, select/deselect visible results, selected-item count and confirmed bulk removal.
+- Filename filtering combined with file-type and import-date filters.
+- Last three unique searches stored locally.
+- Details/small/medium/large preview density; images use Android thumbnails and PDFs attempt a first-page render.
+- Favourite metadata and explicit signature-status metadata.
+- Room v1-to-v2 migration added.
+- **Validation pending:** source changes must compile and run on a device before this milestone is called device-verified.
 
-## P0 — Searchable local library
-Embedded PDF text extraction, SQLite FTS5 filename/page-text search, folders/categories, snippets and incremental updates.
-Exit: filename and embedded PDF text search works; correctness and latency tests pass.
+## S1 — Secure encrypted-PDF import
+- Password prompt, local decryption, app-private managed copy, temp-file cleanup, source/derivative relationship.
+- Never persist passwords. Never replace or rewrite signed original bytes.
+- Wrong-password, cancel, unsupported encryption, inaccessible URI, and low-storage handling.
+- Exit: protected PDF can be reopened from app-private copy without re-entering its password; original remains unchanged; sensitive data never appears in logs.
 
-## P0 — OCR and resilient processing
-Image OCR, scanned-PDF rendering/OCR, pluggable OCR adapter, English/Hindi/Marathi script validation, WorkManager queue, retries/recovery/progress, duplicate handling and reindex.
-Exit: scanned documents become searchable offline; interrupted processing resumes without duplicate/stale entries.
+## S2 — Digital signature verification
+- Signature discovery and cryptographic validation against original signed byte ranges.
+- Certificate chain, timestamp and revocation status where available.
+- Honest VERIFIED / UNTRUSTED / INVALID / INCOMPLETE / UNSIGNED / UNKNOWN UI.
+- Exit: test fixtures for valid, tampered, expired/untrusted, unsigned, and partially validated PDFs; no false green ticks.
 
-## P1 — Organization and retrieval
-Editable category suggestions, tags, saved searches, date/type/folder filters, favourites, recents, indexing dashboard, page navigation and highlighting.
+## S3 — Searchable content
+- PDF embedded-text extraction with page numbers and SQLite FTS5.
+- Snippets and page-aware search results; transactional reindex and stale-index cleanup.
+- Exit: query finds text inside PDFs and opens the relevant source/page without reading files on the query path.
 
-## P1 — Production hardening
-1k/10k/100k profiles, p50/p95/p99 and memory/thermal benchmarks, integrity/migrations/backup/restore, privacy/accessibility/compatibility/security review.
+## S4 — OCR and durable background processing
+- On-device OCR for images and scanned PDFs with language support, bounded concurrency, progress, retries and recovery.
+- WorkManager queue, cancellation and idempotent jobs.
+- Exit: scanned English/Hindi/Marathi test corpus becomes searchable offline; process death does not create duplicate/stale records.
 
-## P2 — Advanced
-Voice search, typo tolerance, dates/reference extraction, expiry reminders and optional local semantic search after exact search is proven. Add encrypted sync/shared libraries only if required.
+## S5 — Production hardening
+- Expanded filters (folder/category, favourite, signature/encryption/index/availability/size/date), accessibility, privacy review, migration/backup/restore, 1k/10k/100k benchmarks, performance and battery profiling.
+- Add folder/tag CRUD, saved searches, page navigation/highlighting, clearable history, export and diagnostics.
 
-## Acceptance targets (measure, not assume)
-p95 <=50 ms at 10k and <=100 ms at 100k on a named reference device/dataset; no OCR/full-file scan on query path; bounded pagination/concurrency; idempotent retries; no stale index after committed update/delete; offline core and verified restore.
+## Acceptance targets (measure, do not assume)
+- p95 <=50 ms at 10k and <=100 ms at 100k for metadata/full-text query on a named reference device and dataset.
+- No OCR or full-file scan on query path; bounded pagination/concurrency; idempotent retries.
+- No stale index after committed update/delete; recoverable jobs and verified restore.
