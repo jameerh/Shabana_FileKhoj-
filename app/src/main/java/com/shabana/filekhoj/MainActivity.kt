@@ -20,6 +20,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ModalDrawerSheet
@@ -221,6 +222,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun FileKhojApp(
     context: Context,
@@ -395,12 +397,20 @@ private fun FileKhojApp(
                     androidx.compose.material3.HorizontalDivider()
                     NavigationDrawerItem(label = { Text("⌂  Home") }, selected = true, onClick = {
                         query = ""
+                        typeFilter = TypeFilter.ALL
+                        dateFilter = DateFilter.ANY
+                        signatureFilter = SignatureFilter.ANY
+                        selectedCategory = "All categories"
                         favouritesOnly = false
                         scope.launch { drawerState.close() }
                     })
                     NavigationDrawerItem(label = { Text("▤  All documents") }, selected = false, onClick = {
+                        query = ""
                         favouritesOnly = false
                         typeFilter = TypeFilter.ALL
+                        dateFilter = DateFilter.ANY
+                        signatureFilter = SignatureFilter.ANY
+                        selectedCategory = "All categories"
                         scope.launch { drawerState.close() }
                     })
                     NavigationDrawerItem(label = { Text("★  Favourites") }, selected = false, onClick = {
