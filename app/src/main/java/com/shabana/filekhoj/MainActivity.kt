@@ -218,6 +218,7 @@ private fun FileKhojApp(
     var query by remember { mutableStateOf("") }
     var documents by remember { mutableStateOf(emptyList<DocumentEntity>()) }
     var fullTextMatchIds by remember { mutableStateOf<Set<Long>>(emptySet()) }
+    var fullTextMatchQuery by remember { mutableStateOf("") }
     var typeFilter by remember { mutableStateOf(TypeFilter.ALL) }
     var dateFilter by remember { mutableStateOf(DateFilter.ANY) }
     var signatureFilter by remember { mutableStateOf(SignatureFilter.ANY) }
@@ -245,6 +246,7 @@ private fun FileKhojApp(
     }
 
     LaunchedEffect(query, documents, repository) {
+        fullTextMatchQuery = query
         fullTextMatchIds = if (query.isBlank()) emptySet()
         else repository.searchDocuments(query).map { it.id }.toSet()
     }
@@ -257,7 +259,7 @@ private fun FileKhojApp(
         val now = System.currentTimeMillis()
         documents.filter { document ->
             val matchesQuery = query.isBlank() || document.displayName.contains(query.trim(), true) ||
-                document.id in fullTextMatchIds
+                (fullTextMatchQuery == query && document.id in fullTextMatchIds)
             val mime = document.mimeType.lowercase(Locale.ROOT)
             val matchesType = when (typeFilter) {
                 TypeFilter.ALL -> true
