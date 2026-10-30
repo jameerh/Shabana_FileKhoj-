@@ -21,7 +21,7 @@ Shabana FileKhoj is an Android-first, offline-first document library for keeping
 
 ## Offline and registration model
 
-Document import, indexing and search are designed to operate on the device without a document cloud. Registration profiles are stored locally on the current phone. On a fresh installation, the first profile becomes that device's administrator; subsequent profiles are local users. The admin panel only lists profiles stored on that same phone.
+Document import, indexing and search are designed to operate on the device without a document cloud. Registration profiles are stored locally on the current phone. On a fresh installation, the person setting up the phone chooses whether it is the local administrator or a user. User registration requires the central admin WhatsApp number. The admin panel only lists profiles stored on that same phone.
 
 For a multi-device rollout, configure the central admin's WhatsApp number on each user device before registration. A user registration opens WhatsApp with the name, mobile number, locality, app name and automatically generated registration date prefilled. The user must send the message in WhatsApp and confirm in FileKhoj. Android cannot independently verify message delivery. WhatsApp notification requires connectivity, but the document library remains offline-first.
 
