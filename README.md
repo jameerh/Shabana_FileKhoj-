@@ -16,6 +16,7 @@ Shabana FileKhoj is an Android-first, offline-first document library for keeping
 - Password-protected PDF handling with private decrypted working copies; passwords are not stored.
 - Signature inspection with explicit status labels and disclosed trust-check limitations.
 - Select-one/select-visible, bulk remove, rename/category editing and favourites.
+- Initial PDF Editor: page previews, page multi-select, rotate clockwise/anticlockwise by 90°, reorder with page up/down controls, delete selected pages, undo/redo and Save as Copy with output validation.
 - Local user profiles, first-device admin role, admin contact settings and WhatsApp registration notification workflow.
 - Custom emerald-and-gold launcher mark matching the Shabana FileKhoj campaign identity.
 
@@ -57,7 +58,7 @@ See [docs/BUILDING.md](docs/BUILDING.md) for local setup.
 
 ## Implementation status and limitations
 
-The current source includes local document management, Room migrations, FTS4 indexing, background extraction, bundled offline Latin/Devanagari OCR dependencies, secure PDF import handling, PDF signature/CMS verification and the new local profile/WhatsApp notification experience. These features still require validation on representative physical devices and files.
+The current source includes local document management, Room migrations, FTS4 indexing, background extraction, bundled offline Latin/Devanagari OCR dependencies, secure PDF import handling, PDF signature/CMS verification, local profile/WhatsApp registration and an initial PDF Editor for rotate/reorder/delete page operations. PDF editing has CI validation pending and still requires physical-device testing with representative PDFs.
 
 Certificate revocation and trusted timestamp evaluation are not complete. A displayed signature status must not be interpreted as Adobe-equivalent trust validation. OCR/search quality depends on source quality and indexing completion. The profile registry is device-local and does not provide cross-device administration.
 
