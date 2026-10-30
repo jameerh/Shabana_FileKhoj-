@@ -175,6 +175,15 @@ class MainActivity : ComponentActivity() {
                 return@registerForActivityResult
             }
 
+            try {
+                contentResolver.takePersistableUriPermission(
+                    destinationUri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                )
+            } catch (_: SecurityException) {
+                // Some providers grant only temporary URI permissions. The immediate save can still proceed.
+            }
+
             lifecycleScope.launch {
                 try {
                     importStatus.value = "Saving edited PDF to the selected location…"
