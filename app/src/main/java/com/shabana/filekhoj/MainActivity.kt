@@ -1004,6 +1004,13 @@ private fun DocumentRow(
     onFavourite: () -> Unit
 ) {
     val isPdf = document.mimeType.contains("pdf", true)
+    val isImage = document.mimeType.startsWith("image/")
+    val glyph = when {
+        isPdf -> "PDF"
+        isImage -> "IMG"
+        document.mimeType.contains("word", true) -> "DOC"
+        else -> "FILE"
+    }
     val bitmap by produceState<Bitmap?>(initialValue = null, document.sourceUri, document.managedPath, mode) {
         value = if (mode == PreviewMode.DETAILS) null else withContext(Dispatchers.IO) {
             loadPreviewBitmap(context, document)
@@ -1014,21 +1021,34 @@ private fun DocumentRow(
     }
     Card(
         modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-        shape = RoundedCornerShape(12.dp)
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        shape = RoundedCornerShape(18.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
     ) {
-        Column(Modifier.fillMaxWidth().padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Checkbox(checked = selected, onCheckedChange = onSelectedChange)
-                Column(Modifier.weight(1f).clickable(onClick = onClick)) {
-                    Text(document.displayName, style = MaterialTheme.typography.titleSmall,
-                        maxLines = 2, overflow = TextOverflow.Ellipsis)
-                    if (mode == PreviewMode.DETAILS || mode == PreviewMode.MEDIUM || mode == PreviewMode.LARGE) {
-                        Text("${document.mimeType} • ${formatSize(document.sizeBytes)}",
-                            style = MaterialTheme.typography.bodySmall)
-                    }
+                Box(
+                    Modifier.size(42.dp).clip(RoundedCornerShape(12.dp))
+                        .background(if (isPdf) Color(0xFFFFE8E5) else Color(0xFFE6F1E9)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(glyph, color = if (isPdf) Color(0xFFB83D35) else Color(0xFF07583D),
+                        style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
                 }
-                TextButton(onClick = onFavourite) { Text(if (document.isFavourite) "★" else "☆") }
+                Column(Modifier.weight(1f).clickable(onClick = onClick),
+                    verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(document.displayName, style = MaterialTheme.typography.titleSmall,
+                        maxLines = 2, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.SemiBold)
+                    Text("${document.mimeType} • ${formatSize(document.sizeBytes)}",
+                        style = MaterialTheme.typography.bodySmall, color = Color(0xFF66766D),
+                        maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                TextButton(onClick = onFavourite) {
+                    Text(if (document.isFavourite) "★" else "☆",
+                        color = if (document.isFavourite) Color(0xFFB88A24) else Color(0xFF6E7D74),
+                        fontSize = 20.sp)
+                }
             }
             if (mode != PreviewMode.DETAILS) {
                 val previewHeight = when (mode) {
@@ -1038,27 +1058,22 @@ private fun DocumentRow(
                     PreviewMode.DETAILS -> 0.dp
                 }
                 if (bitmap != null) {
-                    Image(
-                        bitmap = bitmap!!.asImageBitmap(),
-                        contentDescription = "First-page or file preview of ${document.displayName}",
+                    Image(bitmap = bitmap!!.asImageBitmap(),
+                        contentDescription = "Preview of ${document.displayName}",
                         modifier = Modifier.fillMaxWidth().height(previewHeight),
-                        contentScale = ContentScale.Fit
-                    )
+                        contentScale = ContentScale.Fit)
                 } else {
-                    Box(
-                        Modifier.fillMaxWidth().height(previewHeight),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(if (isPdf) "PDF • first-page preview unavailable" else "File preview unavailable",
-                            style = MaterialTheme.typography.bodySmall)
+                    Box(Modifier.fillMaxWidth().height(previewHeight), contentAlignment = Alignment.Center) {
+                        Text(if (isPdf) "PDF • first-page preview unavailable" else "Preview unavailable",
+                            style = MaterialTheme.typography.bodySmall, color = Color(0xFF78867E))
                     }
                 }
             }
             if (mode == PreviewMode.DETAILS || mode == PreviewMode.MEDIUM || mode == PreviewMode.LARGE) {
                 Text("Added ${DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(document.dateAdded))}",
-                    style = MaterialTheme.typography.bodySmall)
-                Text(if (document.isFavourite) "★ Favourite" else "Index: ${document.indexStatus}",
-                    style = MaterialTheme.typography.labelSmall)
+                    style = MaterialTheme.typography.bodySmall, color = Color(0xFF66766D))
+                Text(if (document.isFavourite) "★ Favourite • ${document.indexStatus}" else "Index: ${document.indexStatus}",
+                    style = MaterialTheme.typography.labelSmall, color = Color(0xFF496354))
                 val signatureLabel = when (document.signatureStatus) {
                     DocumentEntity.SIGNATURE_STATUS_VERIFIED -> "✓ Source signature + certificate chain verified (revocation not checked)"
                     DocumentEntity.SIGNATURE_STATUS_UNTRUSTED -> "⚠ Signature found — certificate untrusted"
@@ -1067,12 +1082,14 @@ private fun DocumentRow(
                     DocumentEntity.SIGNATURE_STATUS_UNSIGNED -> "No digital signature"
                     else -> "Signature not checked"
                 }
-                Text(signatureLabel, style = MaterialTheme.typography.labelSmall)
+                Text(signatureLabel, style = MaterialTheme.typography.labelSmall, color = Color(0xFF66766D))
             }
             Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
                 TextButton(onClick = onEdit) { Text("Edit") }
-                TextButton(onClick = onDelete) { Text("Remove") }
-                TextButton(onClick = onClick) { Text("Open") }
+                TextButton(onClick = onDelete) { Text("Remove", color = Color(0xFFB3453B)) }
+                Button(onClick = onClick, shape = RoundedCornerShape(50),
+                    colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFF07583D))) { Text("Open") }
             }
         }
     }
