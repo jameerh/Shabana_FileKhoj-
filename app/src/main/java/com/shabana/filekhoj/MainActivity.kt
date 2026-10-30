@@ -274,8 +274,10 @@ private fun FileKhojApp(
     var locationInput by remember { mutableStateOf("") }
     var registrationError by remember { mutableStateOf<String?>(null) }
     var registerAsAdmin by remember { mutableStateOf(false) }
-    var pendingProfile by remember { mutableStateOf<LocalUserProfile?>(null) }
-    var showPendingNotification by remember { mutableStateOf(false) }
+    var pendingProfile by remember {
+        mutableStateOf(activeProfile?.takeIf { !it.notificationConfirmed })
+    }
+    var showPendingNotification by remember { mutableStateOf(pendingProfile != null) }
     var whatsappOpened by remember { mutableStateOf(false) }
     val drawerState = androidx.compose.material3.rememberDrawerState(DrawerValue.Closed)
 
