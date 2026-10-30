@@ -13,6 +13,23 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.DrawerValue
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.ModalDrawerSheet
+import androidx.compose.material3.ModalNavigationDrawer
+import androidx.compose.material3.NavigationDrawerItem
+import androidx.compose.material3.lightColorScheme
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -128,7 +145,7 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             FileKhojApp(
-                context = applicationContext,
+                context = this@MainActivity,
                 repository = repository,
                 statusMessage = importStatus.value,
                 searchHistory = searchHistory.value,
@@ -228,19 +245,36 @@ private fun FileKhojApp(
     var signatureFilter by remember { mutableStateOf(SignatureFilter.ANY) }
     var favouritesOnly by remember { mutableStateOf(false) }
     var selectedCategory by remember { mutableStateOf("All categories") }
-    var categoryMenuExpanded by remember { mutableStateOf(false) }
-    var signatureMenuExpanded by remember { mutableStateOf(false) }
     var previewMode by remember { mutableStateOf(PreviewMode.MEDIUM) }
     var selectedIds by remember { mutableStateOf<Set<Long>>(emptySet()) }
-    var showDeleteConfirmation by remember { mutableStateOf(false) }
     var editingDocument by remember { mutableStateOf<DocumentEntity?>(null) }
     var editName by remember(editingDocument) { mutableStateOf(editingDocument?.displayName.orEmpty()) }
     var editCategory by remember(editingDocument) { mutableStateOf(editingDocument?.category.orEmpty()) }
     var passwordText by remember(passwordRequest) { mutableStateOf("") }
-    var typeMenuExpanded by remember { mutableStateOf(false) }
-    var dateMenuExpanded by remember { mutableStateOf(false) }
-    var viewMenuExpanded by remember { mutableStateOf(false) }
+    var typeMenu by remember { mutableStateOf(false) }
+    var dateMenu by remember { mutableStateOf(false) }
+    var signatureMenu by remember { mutableStateOf(false) }
+    var categoryMenu by remember { mutableStateOf(false) }
+    var viewMenu by remember { mutableStateOf(false) }
+    var showDeleteConfirmation by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
+
+    val profilesStore = remember(context) { UserRegistrationStore(context) }
+    var profiles by remember { mutableStateOf(profilesStore.profiles()) }
+    var activeProfile by remember { mutableStateOf(profilesStore.activeProfile()) }
+    var showRegistration by remember { mutableStateOf(activeProfile == null) }
+    var showProfile by remember { mutableStateOf(false) }
+    var showAdmin by remember { mutableStateOf(false) }
+    var showAdminContact by remember { mutableStateOf(false) }
+    var adminNumberDraft by remember { mutableStateOf(profilesStore.adminWhatsappNumber()) }
+    var nameInput by remember { mutableStateOf("") }
+    var mobileInput by remember { mutableStateOf("") }
+    var locationInput by remember { mutableStateOf("") }
+    var registrationError by remember { mutableStateOf<String?>(null) }
+    var pendingProfile by remember { mutableStateOf<LocalUserProfile?>(null) }
+    var showPendingNotification by remember { mutableStateOf(false) }
+    var whatsappOpened by remember { mutableStateOf(false) }
+    val drawerState = androidx.compose.material3.rememberDrawerState(DrawerValue.Closed)
 
     LaunchedEffect(repository) {
         repository.observeDocuments().collect { incoming ->
@@ -248,11 +282,11 @@ private fun FileKhojApp(
             selectedIds = selectedIds.intersect(incoming.map { it.id }.toSet())
         }
     }
-
     LaunchedEffect(query, documents, repository) {
         fullTextMatchQuery = query
         fullTextMatchIds = emptySet()
         if (query.isNotBlank()) {
+            kotlinx.coroutines.delay(160)
             fullTextMatchIds = repository.searchDocuments(query).map { it.id }.toSet()
         }
     }
@@ -261,12 +295,15 @@ private fun FileKhojApp(
         listOf("All categories") + documents.mapNotNull { it.category?.trim()?.takeIf(String::isNotBlank) }
             .distinct().sorted()
     }
-    val filteredDocuments = remember(query, documents, typeFilter, dateFilter, signatureFilter, favouritesOnly, selectedCategory, fullTextMatchIds) {
+    val filteredDocuments = remember(
+        query, documents, typeFilter, dateFilter, signatureFilter, favouritesOnly,
+        selectedCategory, fullTextMatchIds, fullTextMatchQuery
+    ) {
         val now = System.currentTimeMillis()
         documents.filter { document ->
+            val mime = document.mimeType.lowercase(Locale.ROOT)
             val matchesQuery = query.isBlank() || document.displayName.contains(query.trim(), true) ||
                 (fullTextMatchQuery == query && document.id in fullTextMatchIds)
-            val mime = document.mimeType.lowercase(Locale.ROOT)
             val matchesType = when (typeFilter) {
                 TypeFilter.ALL -> true
                 TypeFilter.PDF -> mime.contains("pdf")
@@ -278,185 +315,374 @@ private fun FileKhojApp(
                     mime.contains("spreadsheet"))
             }
             val age = now - document.dateAdded
-            val matchesFavourite = !favouritesOnly || document.isFavourite
-            val matchesCategory = selectedCategory == "All categories" || document.category == selectedCategory
-            val matchesSignature = when (signatureFilter) {
-                SignatureFilter.ANY -> true
-                SignatureFilter.VERIFIED -> document.signatureStatus == DocumentEntity.SIGNATURE_STATUS_VERIFIED
-                SignatureFilter.UNSIGNED -> document.signatureStatus == DocumentEntity.SIGNATURE_STATUS_UNSIGNED
-                SignatureFilter.NEEDS_REVIEW -> document.signatureStatus in setOf(
-                    DocumentEntity.SIGNATURE_STATUS_UNKNOWN,
-                    DocumentEntity.SIGNATURE_STATUS_UNTRUSTED,
-                    DocumentEntity.SIGNATURE_STATUS_INVALID,
-                    DocumentEntity.SIGNATURE_STATUS_INCOMPLETE
-                )
-            }
             val matchesDate = when (dateFilter) {
                 DateFilter.ANY -> true
                 DateFilter.WEEK -> age <= 7L * 24 * 60 * 60 * 1000
                 DateFilter.MONTH -> age <= 30L * 24 * 60 * 60 * 1000
             }
-            matchesQuery && matchesType && matchesDate && matchesFavourite && matchesSignature && matchesCategory
+            val matchesSignature = when (signatureFilter) {
+                SignatureFilter.ANY -> true
+                SignatureFilter.VERIFIED -> document.signatureStatus == DocumentEntity.SIGNATURE_STATUS_VERIFIED
+                SignatureFilter.UNSIGNED -> document.signatureStatus == DocumentEntity.SIGNATURE_STATUS_UNSIGNED
+                SignatureFilter.NEEDS_REVIEW -> document.signatureStatus in setOf(
+                    DocumentEntity.SIGNATURE_STATUS_UNKNOWN, DocumentEntity.SIGNATURE_STATUS_UNTRUSTED,
+                    DocumentEntity.SIGNATURE_STATUS_INVALID, DocumentEntity.SIGNATURE_STATUS_INCOMPLETE
+                )
+            }
+            matchesQuery && matchesType && matchesDate &&
+                (!favouritesOnly || document.isFavourite) &&
+                (selectedCategory == "All categories" || document.category == selectedCategory) &&
+                matchesSignature
         }
     }
     val visibleIds = remember(filteredDocuments) { filteredDocuments.map { it.id }.toSet() }
-    LaunchedEffect(visibleIds) {
-        // Selection is scoped to visible results: hidden rows never remain selected for bulk actions.
-        selectedIds = selectedIds.intersect(visibleIds)
-    }
+    LaunchedEffect(visibleIds) { selectedIds = selectedIds.intersect(visibleIds) }
     val visibleSelectedIds = selectedIds.intersect(visibleIds)
     val allVisibleSelected = visibleIds.isNotEmpty() && visibleSelectedIds.containsAll(visibleIds)
 
-    MaterialTheme {
-        Surface(Modifier.fillMaxSize()) {
-            Column(
-                modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 12.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Text("शबाना", style = MaterialTheme.typography.titleMedium)
-                Text("FileKhoj", style = MaterialTheme.typography.headlineLarge)
-                Text("तुमचे सर्व दस्तऐवज, शोधा क्षणार्धात!", style = MaterialTheme.typography.titleMedium)
-                Text("Save once. Search anything. Find instantly.", style = MaterialTheme.typography.bodySmall)
+    fun createRegistrationMessage(profile: LocalUserProfile): String {
+        val date = DateFormat.getDateTimeInstance(
+            DateFormat.MEDIUM, DateFormat.SHORT, Locale.getDefault()
+        ).format(Date(profile.registeredAt))
+        return """
+            New user registration — Shabana FileKhoj
 
-                OutlinedTextField(
-                    value = query,
-                    onValueChange = { query = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text("Search filenames and document text…") },
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                    keyboardActions = KeyboardActions(onSearch = { onSearchSubmitted(query) })
-                )
-                if (searchHistory.isNotEmpty()) {
-                    Text("Recent searches", style = MaterialTheme.typography.labelMedium)
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        searchHistory.forEach { recent ->
-                            FilterChip(
-                                selected = query.equals(recent, true),
-                                onClick = { query = recent; onSearchSubmitted(recent) },
-                                label = { Text(recent, maxLines = 1, overflow = TextOverflow.Ellipsis) }
-                            )
-                        }
-                    }
-                }
+            Name: ${profile.name}
+            Mobile: ${profile.mobile}
+            Location: ${profile.location}
+            App: Shabana FileKhoj
+            Registration date: $date
+        """.trimIndent()
+    }
 
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Box {
-                        FilterChip(selected = typeFilter != TypeFilter.ALL, onClick = { typeMenuExpanded = true },
-                            label = { Text(typeFilter.label) })
-                        DropdownMenu(expanded = typeMenuExpanded, onDismissRequest = { typeMenuExpanded = false }) {
-                            TypeFilter.values().forEach { filter ->
-                                DropdownMenuItem(text = { Text(filter.label) }, onClick = {
-                                    typeFilter = filter; typeMenuExpanded = false
-                                })
-                            }
-                        }
+    fun openRegistrationWhatsApp(profile: LocalUserProfile) {
+        val destination = profilesStore.adminWhatsappNumber()
+        if (destination.isBlank()) {
+            onStatus("Admin WhatsApp number is not configured. Set it in Profile → Admin contact.")
+            adminNumberDraft = ""
+            showAdminContact = true
+            return
+        }
+        val url = "https://wa.me/$destination?text=${Uri.encode(createRegistrationMessage(profile))}"
+        try {
+            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            whatsappOpened = true
+        } catch (_: Exception) {
+            whatsappOpened = false
+            onStatus("Could not open WhatsApp. Install or enable WhatsApp, then try again.")
+        }
+    }
+
+    MaterialTheme(
+        colorScheme = lightColorScheme(
+            primary = Color(0xFF07583D), onPrimary = Color.White,
+            secondary = Color(0xFFD6A83B), background = Color(0xFFF7F5EF),
+            surface = Color.White, surfaceVariant = Color(0xFFEDEFEA),
+            onSurface = Color(0xFF17251F)
+        )
+    ) {
+        ModalNavigationDrawer(
+            drawerState = drawerState,
+            drawerContent = {
+                ModalDrawerSheet(drawerContainerColor = Color(0xFFF7F5EF)) {
+                    Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text("शबाना", color = Color(0xFFB88A24), fontWeight = FontWeight.Bold)
+                        Text("FileKhoj", style = MaterialTheme.typography.headlineSmall,
+                            color = Color(0xFF07583D), fontWeight = FontWeight.Bold)
+                        Text("Save once. Search anything.", style = MaterialTheme.typography.bodySmall)
                     }
-                    Box {
-                        FilterChip(selected = dateFilter != DateFilter.ANY, onClick = { dateMenuExpanded = true },
-                            label = { Text(dateFilter.label) })
-                        DropdownMenu(expanded = dateMenuExpanded, onDismissRequest = { dateMenuExpanded = false }) {
-                            DateFilter.values().forEach { filter ->
-                                DropdownMenuItem(text = { Text(filter.label) }, onClick = {
-                                    dateFilter = filter; dateMenuExpanded = false
-                                })
-                            }
-                        }
-                    }
-                    Box {
-                        FilterChip(selected = signatureFilter != SignatureFilter.ANY,
-                            onClick = { signatureMenuExpanded = true }, label = { Text(signatureFilter.label) })
-                        DropdownMenu(expanded = signatureMenuExpanded, onDismissRequest = { signatureMenuExpanded = false }) {
-                            SignatureFilter.values().forEach { filter ->
-                                DropdownMenuItem(text = { Text(filter.label) }, onClick = {
-                                    signatureFilter = filter; signatureMenuExpanded = false
-                                })
-                            }
-                        }
-                    }
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Box {
-                        FilterChip(selected = selectedCategory != "All categories",
-                            onClick = { categoryMenuExpanded = true }, label = { Text(selectedCategory) })
-                        DropdownMenu(expanded = categoryMenuExpanded, onDismissRequest = { categoryMenuExpanded = false }) {
-                            categoryOptions.forEach { category ->
-                                DropdownMenuItem(text = { Text(category) }, onClick = {
-                                    selectedCategory = category
-                                    categoryMenuExpanded = false
-                                })
-                            }
-                        }
-                    }
-                    FilterChip(selected = favouritesOnly, onClick = { favouritesOnly = !favouritesOnly },
-                        label = { Text("★ Favourites") })
-                    Box {
-                        FilterChip(selected = previewMode != PreviewMode.MEDIUM, onClick = { viewMenuExpanded = true },
-                            label = { Text("View: ${previewMode.label}") })
-                        DropdownMenu(expanded = viewMenuExpanded, onDismissRequest = { viewMenuExpanded = false }) {
-                            PreviewMode.values().forEach { mode ->
-                                DropdownMenuItem(text = { Text(mode.label) }, onClick = {
-                                    previewMode = mode; viewMenuExpanded = false
-                                })
-                            }
-                        }
-                    }
-                    TextButton(onClick = {
-                        typeFilter = TypeFilter.ALL
-                        dateFilter = DateFilter.ANY
-                        signatureFilter = SignatureFilter.ANY
+                    androidx.compose.material3.HorizontalDivider()
+                    NavigationDrawerItem(label = { Text("⌂  Home") }, selected = true, onClick = {
+                        query = ""
                         favouritesOnly = false
-                        selectedCategory = "All categories"
-                    }) { Text("Reset filters") }
-                }
-
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Button(onClick = onImportClick, modifier = Modifier.weight(1f)) { Text("＋ Import files") }
-                    Text("${filteredDocuments.size} shown / ${documents.size} total",
-                        style = MaterialTheme.typography.bodySmall)
-                }
-
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Checkbox(checked = allVisibleSelected, onCheckedChange = { checked ->
-                        selectedIds = if (checked) selectedIds + visibleIds else selectedIds - visibleIds
+                        scope.launch { drawerState.close() }
                     })
-                    Text(if (allVisibleSelected) "Deselect visible" else "Select all visible",
-                        modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
-                    if (visibleSelectedIds.isNotEmpty()) {
-                        Text("${visibleSelectedIds.size} selected", style = MaterialTheme.typography.labelMedium)
-                        TextButton(onClick = { showDeleteConfirmation = true }) { Text("Delete") }
-                        TextButton(onClick = { selectedIds = emptySet() }) { Text("Clear") }
+                    NavigationDrawerItem(label = { Text("▤  All documents") }, selected = false, onClick = {
+                        favouritesOnly = false
+                        typeFilter = TypeFilter.ALL
+                        scope.launch { drawerState.close() }
+                    })
+                    NavigationDrawerItem(label = { Text("★  Favourites") }, selected = false, onClick = {
+                        favouritesOnly = true
+                        scope.launch { drawerState.close() }
+                    })
+                    NavigationDrawerItem(label = { Text("＋  Import documents") }, selected = false, onClick = {
+                        scope.launch { drawerState.close() }
+                        onImportClick()
+                    })
+                    NavigationDrawerItem(label = { Text("♙  Profile / Login") }, selected = false, onClick = {
+                        showProfile = true
+                        scope.launch { drawerState.close() }
+                    })
+                    if (activeProfile?.role == UserRegistrationStore.ROLE_ADMIN) {
+                        NavigationDrawerItem(label = { Text("⚙  Admin panel") }, selected = false, onClick = {
+                            showAdmin = true
+                            scope.launch { drawerState.close() }
+                        })
+                    }
+                    NavigationDrawerItem(label = { Text("☎  Admin WhatsApp contact") }, selected = false, onClick = {
+                        adminNumberDraft = profilesStore.adminWhatsappNumber()
+                        showAdminContact = true
+                        scope.launch { drawerState.close() }
+                    })
+                    Text("PRIVATE • OFFLINE-FIRST", modifier = Modifier.padding(18.dp),
+                        color = Color(0xFF668173), style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold)
+                }
+            }
+        ) {
+            Column(Modifier.fillMaxSize().background(Color(0xFFF7F5EF))) {
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IconButton(onClick = { scope.launch { drawerState.open() } }) {
+                        Text("☰", fontSize = 24.sp, color = Color(0xFF07583D))
+                    }
+                    Column(Modifier.weight(1f)) {
+                        Text("शबाना FileKhoj", style = MaterialTheme.typography.titleMedium,
+                            color = Color(0xFF07583D), fontWeight = FontWeight.Bold)
+                        Text("तुमचे दस्तऐवज. तुमच्याच मोबाईलमध्ये.",
+                            style = MaterialTheme.typography.labelSmall, color = Color(0xFF64756C))
+                    }
+                    IconButton(onClick = { showProfile = true }) {
+                        Text(activeProfile?.name?.firstOrNull()?.uppercaseChar()?.toString() ?: "♙",
+                            fontSize = 22.sp, color = Color(0xFF07583D), fontWeight = FontWeight.Bold)
                     }
                 }
-                statusMessage?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
 
-                if (filteredDocuments.isEmpty()) {
-                    Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
-                        Text(if (documents.isEmpty()) "Your library is empty. Import documents to get started."
-                        else "No documents match the current search and filters.")
+                LazyColumn(
+                    Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 26.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    item {
+                        Card(
+                            modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(26.dp),
+                            colors = CardDefaults.cardColors(containerColor = Color(0xFF064B33))
+                        ) {
+                            Row(Modifier.fillMaxWidth().padding(18.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                                    Text("शबाना", color = Color(0xFFFFD76B), fontWeight = FontWeight.Bold)
+                                    Text("FileKhoj", color = Color.White, fontSize = 32.sp,
+                                        fontWeight = FontWeight.ExtraBold)
+                                    Text("तुमचे सर्व दस्तऐवज,\nशोधा क्षणार्धात!",
+                                        color = Color.White, fontSize = 18.sp, lineHeight = 24.sp,
+                                        fontWeight = FontWeight.Bold)
+                                    Text("Save once. Search anything. Find instantly.",
+                                        color = Color(0xFFD8EBDD), style = MaterialTheme.typography.bodySmall)
+                                    Text("PDF  •  फोटो  •  कागदपत्रे  •  OCR शोध",
+                                        color = Color(0xFFFFD76B), style = MaterialTheme.typography.labelMedium)
+                                }
+                                Box(Modifier.size(74.dp).clip(CircleShape).background(Color(0xFF0B6847)),
+                                    contentAlignment = Alignment.Center) {
+                                    Text("⌕", color = Color(0xFFFFD76B), fontSize = 58.sp)
+                                }
+                            }
+                        }
                     }
-                } else {
-                    LazyColumn(
-                        modifier = Modifier.fillMaxWidth().weight(1f),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
+                    item {
+                        Card(shape = RoundedCornerShape(22.dp),
+                            colors = CardDefaults.cardColors(containerColor = Color.White)) {
+                            Column(Modifier.fillMaxWidth().padding(14.dp),
+                                verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                                Text("काय शोधायचे आहे?", style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold, color = Color(0xFF183B2D))
+                                OutlinedTextField(
+                                    value = query, onValueChange = { query = it },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    placeholder = { Text("नाव, क्रमांक किंवा PDF मधील शब्द शोधा…") },
+                                    leadingIcon = { Text("⌕", fontSize = 24.sp) },
+                                    trailingIcon = {
+                                        if (query.isNotBlank()) TextButton(onClick = { query = "" }) { Text("Clear") }
+                                    },
+                                    singleLine = true, shape = RoundedCornerShape(16.dp),
+                                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                                    keyboardActions = KeyboardActions(onSearch = { onSearchSubmitted(query) })
+                                )
+                                Text("फाईलचे नाव आणि उपलब्ध indexed मजकूर — इंटरनेटशिवाय शोधा.",
+                                    style = MaterialTheme.typography.bodySmall, color = Color(0xFF66766D))
+                            }
+                        }
+                    }
+                    if (searchHistory.isNotEmpty()) {
+                        item {
+                            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Text("Recent searches", style = MaterialTheme.typography.labelLarge,
+                                    color = Color(0xFF4D6459), fontWeight = FontWeight.SemiBold)
+                                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    searchHistory.forEach { recent ->
+                                        FilterChip(selected = query.equals(recent, true),
+                                            onClick = { query = recent; onSearchSubmitted(recent) },
+                                            label = { Text(recent, maxLines = 1, overflow = TextOverflow.Ellipsis) })
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    item {
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text("Quick filters", style = MaterialTheme.typography.labelLarge,
+                                color = Color(0xFF4D6459), fontWeight = FontWeight.SemiBold)
+                            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                                horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                                Box {
+                                    FilterChip(selected = typeFilter != TypeFilter.ALL,
+                                        onClick = { typeMenu = true }, label = { Text(typeFilter.label) })
+                                    DropdownMenu(typeMenu, onDismissRequest = { typeMenu = false }) {
+                                        TypeFilter.values().forEach { filter ->
+                                            DropdownMenuItem(text = { Text(filter.label) }, onClick = {
+                                                typeFilter = filter; typeMenu = false
+                                            })
+                                        }
+                                    }
+                                }
+                                Box {
+                                    FilterChip(selected = dateFilter != DateFilter.ANY,
+                                        onClick = { dateMenu = true }, label = { Text(dateFilter.label) })
+                                    DropdownMenu(dateMenu, onDismissRequest = { dateMenu = false }) {
+                                        DateFilter.values().forEach { filter ->
+                                            DropdownMenuItem(text = { Text(filter.label) }, onClick = {
+                                                dateFilter = filter; dateMenu = false
+                                            })
+                                        }
+                                    }
+                                }
+                                Box {
+                                    FilterChip(selected = signatureFilter != SignatureFilter.ANY,
+                                        onClick = { signatureMenu = true }, label = { Text(signatureFilter.label) })
+                                    DropdownMenu(signatureMenu, onDismissRequest = { signatureMenu = false }) {
+                                        SignatureFilter.values().forEach { filter ->
+                                            DropdownMenuItem(text = { Text(filter.label) }, onClick = {
+                                                signatureFilter = filter; signatureMenu = false
+                                            })
+                                        }
+                                    }
+                                }
+                            }
+                            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                                horizontalArrangement = Arrangement.spacedBy(7.dp),
+                                verticalAlignment = Alignment.CenterVertically) {
+                                Box {
+                                    FilterChip(selected = selectedCategory != "All categories",
+                                        onClick = { categoryMenu = true }, label = { Text(selectedCategory) })
+                                    DropdownMenu(categoryMenu, onDismissRequest = { categoryMenu = false }) {
+                                        categoryOptions.forEach { category ->
+                                            DropdownMenuItem(text = { Text(category) }, onClick = {
+                                                selectedCategory = category; categoryMenu = false
+                                            })
+                                        }
+                                    }
+                                }
+                                FilterChip(selected = favouritesOnly, onClick = { favouritesOnly = !favouritesOnly },
+                                    label = { Text("★ Favourites") })
+                                Box {
+                                    FilterChip(selected = previewMode != PreviewMode.MEDIUM,
+                                        onClick = { viewMenu = true }, label = { Text("View: ${previewMode.label}") })
+                                    DropdownMenu(viewMenu, onDismissRequest = { viewMenu = false }) {
+                                        PreviewMode.values().forEach { mode ->
+                                            DropdownMenuItem(text = { Text(mode.label) }, onClick = {
+                                                previewMode = mode; viewMenu = false
+                                            })
+                                        }
+                                    }
+                                }
+                                TextButton(onClick = {
+                                    typeFilter = TypeFilter.ALL
+                                    dateFilter = DateFilter.ANY
+                                    signatureFilter = SignatureFilter.ANY
+                                    favouritesOnly = false
+                                    selectedCategory = "All categories"
+                                }) { Text("Reset") }
+                            }
+                        }
+                    }
+                    item {
+                        Card(shape = RoundedCornerShape(18.dp),
+                            colors = CardDefaults.cardColors(containerColor = Color.White)) {
+                            Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                    Text("Your library", style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold)
+                                    Text("${filteredDocuments.size} shown  •  ${documents.size} saved",
+                                        style = MaterialTheme.typography.bodySmall, color = Color(0xFF64756C))
+                                }
+                                Button(onClick = onImportClick, shape = RoundedCornerShape(50),
+                                    colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+                                        containerColor = Color(0xFF07583D))) { Text("＋ Import files") }
+                            }
+                        }
+                    }
+                    if (visibleIds.isNotEmpty()) {
+                        item {
+                            Card(shape = RoundedCornerShape(16.dp),
+                                colors = CardDefaults.cardColors(containerColor = Color.White)) {
+                                Row(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically) {
+                                    Checkbox(checked = allVisibleSelected, onCheckedChange = { checked ->
+                                        selectedIds = if (checked) selectedIds + visibleIds else selectedIds - visibleIds
+                                    })
+                                    Text(if (allVisibleSelected) "Deselect visible" else "Select all visible",
+                                        modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+                                    if (visibleSelectedIds.isNotEmpty()) {
+                                        Text("${visibleSelectedIds.size} selected", style = MaterialTheme.typography.labelSmall)
+                                        TextButton(onClick = { showDeleteConfirmation = true }) { Text("Remove") }
+                                        TextButton(onClick = { selectedIds = emptySet() }) { Text("Clear") }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    statusMessage?.let { message ->
+                        item {
+                            Card(colors = CardDefaults.cardColors(containerColor = Color(0xFFE7EFE8)),
+                                shape = RoundedCornerShape(14.dp)) {
+                                Text(message, Modifier.padding(12.dp), style = MaterialTheme.typography.bodySmall,
+                                    color = Color(0xFF244A36))
+                            }
+                        }
+                    }
+                    if (filteredDocuments.isEmpty()) {
+                        item {
+                            Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(22.dp),
+                                colors = CardDefaults.cardColors(containerColor = Color.White)) {
+                                Column(Modifier.fillMaxWidth().padding(24.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Text(if (documents.isEmpty()) "📂" else "⌕", fontSize = 42.sp)
+                                    Text(if (documents.isEmpty()) "तुमची डिजिटल फाईल पेटी तयार करा"
+                                        else "No matching documents found",
+                                        style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                                    Text(if (documents.isEmpty())
+                                        "आधार, प्रमाणपत्रे, PDF आणि फोटो एकदाच जोडा. पुढे नाव किंवा मजकूर शोधून लगेच उघडा."
+                                    else "Try another keyword or reset the filters.",
+                                        style = MaterialTheme.typography.bodySmall, color = Color(0xFF64756C))
+                                    if (documents.isEmpty()) {
+                                        Button(onClick = onImportClick,
+                                            colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+                                                containerColor = Color(0xFF07583D))) { Text("पहिली फाईल जोडा") }
+                                    } else {
+                                        TextButton(onClick = {
+                                            query = ""; typeFilter = TypeFilter.ALL; dateFilter = DateFilter.ANY
+                                            signatureFilter = SignatureFilter.ANY; favouritesOnly = false
+                                            selectedCategory = "All categories"
+                                        }) { Text("Clear search and filters") }
+                                    }
+                                }
+                            }
+                        }
+                    } else {
                         items(filteredDocuments, key = { it.id }) { document ->
                             DocumentRow(
-                                context = context,
-                                document = document,
-                                mode = previewMode,
+                                context = context, document = document, mode = previewMode,
                                 selected = document.id in selectedIds,
                                 onSelectedChange = { checked ->
                                     selectedIds = if (checked) selectedIds + document.id else selectedIds - document.id
                                 },
                                 onClick = { onOpenDocument(document) },
-                                onEdit = {
-                                    editingDocument = document
-                                },
-                                onDelete = {
-                                    selectedIds = setOf(document.id)
-                                    showDeleteConfirmation = true
-                                },
+                                onEdit = { editingDocument = document },
+                                onDelete = { selectedIds = setOf(document.id); showDeleteConfirmation = true },
                                 onFavourite = {
                                     scope.launch { repository.setFavourite(document.id, !document.isFavourite) }
                                 }
@@ -468,26 +694,210 @@ private fun FileKhojApp(
         }
     }
 
+    if (showRegistration) {
+        AlertDialog(
+            onDismissRequest = { if (activeProfile != null) showRegistration = false },
+            title = { Text(if (activeProfile == null) "Welcome to Shabana FileKhoj" else "Register a profile") },
+            text = {
+                Column(Modifier.fillMaxWidth().heightIn(max = 430.dp).verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("फक्त आवश्यक माहिती भरा. App name आणि registration date आपोआप जोडली जातील.",
+                        style = MaterialTheme.typography.bodySmall)
+                    OutlinedTextField(nameInput, { nameInput = it }, Modifier.fillMaxWidth(),
+                        label = { Text("Full name") }, singleLine = true)
+                    OutlinedTextField(mobileInput, { mobileInput = it }, Modifier.fillMaxWidth(),
+                        label = { Text("Mobile number") }, singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Phone))
+                    OutlinedTextField(locationInput, { locationInput = it }, Modifier.fillMaxWidth(),
+                        label = { Text("Village / Town / City") }, singleLine = true)
+                    Text("No Aadhaar, email, date of birth or document details are requested. Profiles stay on this device.",
+                        style = MaterialTheme.typography.labelSmall, color = Color(0xFF64756C))
+                    registrationError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    try {
+                        val profile = profilesStore.register(nameInput, mobileInput, locationInput)
+                        profiles = profilesStore.profiles()
+                        activeProfile = profile
+                        showRegistration = false
+                        registrationError = null
+                        if (!profile.notificationConfirmed) {
+                            pendingProfile = profile
+                            showPendingNotification = true
+                            whatsappOpened = false
+                            openRegistrationWhatsApp(profile)
+                        } else {
+                            onStatus("First profile created as the administrator on this device. Configure the central admin contact before distributing user builds.")
+                        }
+                    } catch (error: IllegalArgumentException) {
+                        registrationError = error.message ?: "Please check the details and try again."
+                    }
+                }) { Text("Register") }
+            },
+            dismissButton = {
+                if (activeProfile != null) TextButton(onClick = { showRegistration = false }) { Text("Cancel") }
+            }
+        )
+    }
+
+    if (showProfile) {
+        AlertDialog(
+            onDismissRequest = { showProfile = false },
+            title = { Text("Profile / Login") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                    activeProfile?.let { profile ->
+                        Text(profile.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        Text("${profile.mobile}  •  ${profile.location}", style = MaterialTheme.typography.bodySmall)
+                        Text(if (profile.role == UserRegistrationStore.ROLE_ADMIN) "Device administrator" else "Local user",
+                            color = Color(0xFF07583D), style = MaterialTheme.typography.labelMedium)
+                    }
+                    Text("Profiles are stored on this phone. This is local profile switching, not cloud authentication.",
+                        style = MaterialTheme.typography.bodySmall)
+                    profiles.forEach { profile ->
+                        TextButton(onClick = {
+                            profilesStore.setActiveProfile(profile)
+                            activeProfile = profile
+                            showProfile = false
+                            if (!profile.notificationConfirmed) {
+                                pendingProfile = profile
+                                showPendingNotification = true
+                                whatsappOpened = false
+                            }
+                        }) {
+                            Text("${if (profile.mobile == activeProfile?.mobile) "✓ " else ""}${profile.name} • ${profile.role}")
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showProfile = false
+                    nameInput = ""; mobileInput = ""; locationInput = ""; registrationError = null
+                    showRegistration = true
+                }) { Text("＋ Add / Register user") }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    showProfile = false
+                    adminNumberDraft = profilesStore.adminWhatsappNumber()
+                    showAdminContact = true
+                }) { Text("Admin contact") }
+            }
+        )
+    }
+
+    if (showAdmin) {
+        AlertDialog(
+            onDismissRequest = { showAdmin = false },
+            title = { Text("Admin panel • This device") },
+            text = {
+                Column(Modifier.fillMaxWidth().heightIn(max = 420.dp).verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                    Text("Registered local profiles: ${profiles.size}")
+                    profiles.forEach { profile ->
+                        Card(colors = CardDefaults.cardColors(containerColor = Color(0xFFF1F4EF))) {
+                            Column(Modifier.fillMaxWidth().padding(10.dp)) {
+                                Text(profile.name, fontWeight = FontWeight.Bold)
+                                Text("${profile.mobile} • ${profile.location}", style = MaterialTheme.typography.bodySmall)
+                                Text("${profile.role} • ${if (profile.notificationConfirmed) "Notification confirmed" else "WhatsApp notification pending"}",
+                                    style = MaterialTheme.typography.labelSmall)
+                                Text("Registered: ${DateFormat.getDateTimeInstance().format(Date(profile.registeredAt))}",
+                                    style = MaterialTheme.typography.labelSmall)
+                            }
+                        }
+                    }
+                    Text("This panel only shows registrations saved on this phone; it does not receive registrations from other devices.",
+                        style = MaterialTheme.typography.bodySmall, color = Color(0xFF64756C))
+                }
+            },
+            confirmButton = { TextButton(onClick = { showAdmin = false }) { Text("Close") } },
+            dismissButton = {
+                TextButton(onClick = {
+                    showAdmin = false
+                    adminNumberDraft = profilesStore.adminWhatsappNumber()
+                    showAdminContact = true
+                }) { Text("WhatsApp settings") }
+            }
+        )
+    }
+
+    if (showAdminContact) {
+        AlertDialog(
+            onDismissRequest = { showAdminContact = false },
+            title = { Text("Admin WhatsApp contact") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Enter the admin number with country code. A 10-digit Indian mobile number is accepted; +91 is added automatically.",
+                        style = MaterialTheme.typography.bodySmall)
+                    OutlinedTextField(adminNumberDraft, { adminNumberDraft = it },
+                        Modifier.fillMaxWidth(), label = { Text("Admin WhatsApp number") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Phone))
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    try {
+                        profilesStore.setAdminWhatsappNumber(adminNumberDraft)
+                        showAdminContact = false
+                        onStatus("Admin WhatsApp contact saved on this device.")
+                        pendingProfile?.let(::openRegistrationWhatsApp)
+                    } catch (error: IllegalArgumentException) {
+                        onStatus(error.message ?: "Invalid WhatsApp number.")
+                    }
+                }) { Text("Save contact") }
+            },
+            dismissButton = { TextButton(onClick = { showAdminContact = false }) { Text("Cancel") } }
+        )
+    }
+
+    if (showPendingNotification && pendingProfile != null) {
+        val pending = pendingProfile!!
+        AlertDialog(
+            onDismissRequest = { },
+            title = { Text("Admin notification required") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Your profile is saved locally. Send these details to the admin in WhatsApp, then return here.")
+                    Text("Name: ${pending.name}\nMobile: ${pending.mobile}\nLocation: ${pending.location}",
+                        style = MaterialTheme.typography.bodySmall)
+                    TextButton(onClick = {
+                        whatsappOpened = false
+                        openRegistrationWhatsApp(pending)
+                    }) { Text("Open WhatsApp and send details") }
+                    Text(if (whatsappOpened)
+                        "WhatsApp was opened with the message prepared. Complete sending in WhatsApp."
+                    else "Open WhatsApp to continue. If the admin number is missing, configure it first.",
+                        style = MaterialTheme.typography.labelSmall, color = Color(0xFF64756C))
+                }
+            },
+            confirmButton = {
+                TextButton(enabled = whatsappOpened, onClick = {
+                    profilesStore.confirmAdminNotification(pending.mobile)
+                    profiles = profilesStore.profiles()
+                    activeProfile = profilesStore.activeProfile()
+                    showPendingNotification = false
+                    pendingProfile = null
+                    whatsappOpened = false
+                    onStatus("Registration marked as notified. WhatsApp delivery is not independently verified.")
+                }) { Text("I have sent it") }
+            }
+        )
+    }
+
     if (editingDocument != null) {
         AlertDialog(
             onDismissRequest = { editingDocument = null },
             title = { Text("Edit document details") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(
-                        value = editName,
-                        onValueChange = { editName = it },
-                        modifier = Modifier.fillMaxWidth(),
-                        label = { Text("Display name") },
-                        singleLine = true
-                    )
-                    OutlinedTextField(
-                        value = editCategory,
-                        onValueChange = { editCategory = it },
-                        modifier = Modifier.fillMaxWidth(),
-                        label = { Text("Category (optional)") },
-                        singleLine = true
-                    )
+                    OutlinedTextField(editName, { editName = it }, Modifier.fillMaxWidth(),
+                        label = { Text("Display name") }, singleLine = true)
+                    OutlinedTextField(editCategory, { editCategory = it }, Modifier.fillMaxWidth(),
+                        label = { Text("Category (optional)") }, singleLine = true)
                 }
             },
             confirmButton = {
@@ -515,26 +925,19 @@ private fun FileKhojApp(
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("Enter the PDF open password. FileKhoj processes it on this device and does not save the password.")
-                    OutlinedTextField(
-                        value = passwordText,
-                        onValueChange = { passwordText = it },
-                        modifier = Modifier.fillMaxWidth(),
-                        label = { Text("PDF password") },
-                        singleLine = true,
+                    OutlinedTextField(passwordText, { passwordText = it }, Modifier.fillMaxWidth(),
+                        label = { Text("PDF password") }, singleLine = true,
                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                         keyboardActions = KeyboardActions(onDone = {
-                            onPasswordSubmit(passwordRequest, passwordText)
-                            passwordText = ""
-                        })
-                    )
+                            onPasswordSubmit(passwordRequest, passwordText); passwordText = ""
+                        }))
                     passwordError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                 }
             },
             confirmButton = {
-                TextButton(onClick = {
-                    onPasswordSubmit(passwordRequest, passwordText)
-                    passwordText = ""
-                }) { Text("Unlock & save") }
+                TextButton(onClick = { onPasswordSubmit(passwordRequest, passwordText); passwordText = "" }) {
+                    Text("Unlock & save")
+                }
             },
             dismissButton = { TextButton(onClick = onPasswordCancel) { Text("Skip") } }
         )
@@ -544,7 +947,7 @@ private fun FileKhojApp(
         AlertDialog(
             onDismissRequest = { showDeleteConfirmation = false },
             title = { Text("Remove selected documents?") },
-            text = { Text("This removes ${visibleSelectedIds.size} item(s) from the FileKhoj library. Original documents selected from your device or cloud provider will not be deleted.") },
+            text = { Text("This removes ${visibleSelectedIds.size} item(s) from the FileKhoj library. Original source documents will not be deleted.") },
             confirmButton = {
                 TextButton(onClick = {
                     val ids = selectedIds.intersect(visibleIds).toList()
