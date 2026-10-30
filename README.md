@@ -29,7 +29,7 @@ See [docs/BUILDING.md](docs/BUILDING.md) for local setup and Gradle wrapper gene
 6. Select the `app` run configuration and an emulator or USB-debugging-enabled device.
 7. Run the app.
 
-The Gradle wrapper scripts/JAR still need to be generated once with Gradle 8.13. Follow [docs/BUILDING.md](docs/BUILDING.md).
+The Gradle wrapper properties are pinned to 8.13. The wrapper scripts and JAR must also be committed before a fresh clone can build from the command line; see [docs/BUILDING.md](docs/BUILDING.md).
 
 ## Product goals
 
@@ -53,7 +53,7 @@ Kotlin, Jetpack Compose, Material 3, Room/SQLite, SQLite FTS5, WorkManager, Andr
 
 ## Status
 
-Starter scaffold; local build verification and core document features remain outstanding. See the roadmap for implementation phases and measurable acceptance criteria.
+Milestone 1 implemented: Room document metadata, multi-file import through Android's system picker, persistent URI permissions where supported, and a filename-filtered local library. Full-text indexing, PDF extraction, OCR, and local device verification remain outstanding. See the roadmap for implementation phases and measurable acceptance criteria.
 
 ## License
 
