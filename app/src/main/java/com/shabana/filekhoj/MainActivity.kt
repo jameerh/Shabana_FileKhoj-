@@ -9,6 +9,8 @@ import android.graphics.pdf.PdfRenderer
 import android.net.Uri
 import android.os.Bundle
 import android.os.ParcelFileDescriptor
+import android.widget.Toast
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.ActivityResultLauncher
@@ -106,6 +108,9 @@ private enum class PreviewMode(val label: String) {
 
 class MainActivity : ComponentActivity() {
     private lateinit var documentPicker: ActivityResultLauncher<Array<String>>
+    private lateinit var pdfExportLauncher: ActivityResultLauncher<String>
+    private var pendingPdfExportFile: File? = null
+    private var pendingPdfExportCompletion: ((Boolean, String?) -> Unit)? = null
     private lateinit var repository: DocumentRepository
     private val importStatus = mutableStateOf<String?>(null)
     private val searchHistory = mutableStateOf<List<String>>(emptyList())
@@ -145,6 +150,86 @@ class MainActivity : ComponentActivity() {
         }
 
 
+
+        pdfExportLauncher = registerForActivityResult(
+            ActivityResultContracts.CreateDocument("application/pdf")
+        ) { destinationUri ->
+            val exportFile = pendingPdfExportFile
+            val completion = pendingPdfExportCompletion
+            pendingPdfExportFile = null
+            pendingPdfExportCompletion = null
+
+            if (destinationUri == null) {
+                exportFile?.delete()
+                val detail = "Save was cancelled. Your PDF edits are still open."
+                importStatus.value = detail
+                completion?.invoke(false, detail)
+                return@registerForActivityResult
+            }
+
+            if (exportFile == null || !exportFile.isFile || exportFile.length() <= 5L) {
+                exportFile?.delete()
+                val detail = "The edited PDF file is missing or empty. Please try Save again."
+                importStatus.value = detail
+                completion?.invoke(false, detail)
+                return@registerForActivityResult
+            }
+
+            lifecycleScope.launch {
+                try {
+                    importStatus.value = "Saving edited PDF to the selected location…"
+                    val resultMessage = withContext(Dispatchers.IO) {
+                        val destination = contentResolver.openOutputStream(destinationUri, "w")
+                            ?: throw IllegalStateException("Android could not open the selected save location.")
+                        var copiedBytes = 0L
+                        destination.use { output ->
+                            exportFile.inputStream().use { input ->
+                                val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                                while (true) {
+                                    val count = input.read(buffer)
+                                    if (count < 0) break
+                                    output.write(buffer, 0, count)
+                                    copiedBytes += count
+                                }
+                            }
+                            output.flush()
+                        }
+                        check(copiedBytes > 5L) { "The selected PDF file was written as an empty file." }
+                        val header = ByteArray(5)
+                        exportFile.inputStream().use { input ->
+                            check(input.read(header) == 5 && String(header, Charsets.US_ASCII) == "%PDF-") {
+                                "The generated file is not a valid PDF."
+                            }
+                        }
+                        copiedBytes
+                    }
+
+                    val importResult = repository.importDocuments(listOf(destinationUri))
+                    val message = when {
+                        importResult.imported > 0 ->
+                            "PDF saved ($resultMessage bytes) and added to your FileKhoj library."
+                        importResult.alreadyPresent > 0 ->
+                            "PDF saved ($resultMessage bytes). It is already in your FileKhoj library."
+                        importResult.failed > 0 ->
+                            "PDF saved ($resultMessage bytes), but FileKhoj could not index the saved copy."
+                        else ->
+                            "PDF saved successfully ($resultMessage bytes)."
+                    }
+                    importStatus.value = message
+                    Toast.makeText(this@MainActivity, message, Toast.LENGTH_LONG).show()
+                    completion?.invoke(true, message)
+                } catch (error: Exception) {
+                    val detail = error.message ?: error.javaClass.simpleName
+                    val message = "PDF save failed: $detail"
+                    Log.e("ShabanaFileKhoj", "Save As destination write/import failed", error)
+                    importStatus.value = message
+                    Toast.makeText(this@MainActivity, message, Toast.LENGTH_LONG).show()
+                    completion?.invoke(false, message)
+                } finally {
+                    exportFile.delete()
+                }
+            }
+        }
 
         setContent {
             FileKhojApp(
@@ -186,34 +271,41 @@ class MainActivity : ComponentActivity() {
                     ))
                 },
                 onOpenDocument = ::openDocument,
-                onPdfSaved = ::importSavedPdf,
+                onPdfSaveRequest = ::launchPdfExport,
                 onStatus = { importStatus.value = it }
             )
         }
     }
 
-    private fun importSavedPdf(uri: Uri) {
-        try {
-            contentResolver.takePersistableUriPermission(
-                uri,
-                Intent.FLAG_GRANT_READ_URI_PERMISSION
-            )
-        } catch (_: SecurityException) {
-            // The provider may return a temporary read grant; import still proceeds.
+    private fun launchPdfExport(
+        file: File,
+        onComplete: (Boolean, String?) -> Unit
+    ) {
+        if (pendingPdfExportFile != null) {
+            onComplete(false, "A PDF Save As operation is already open.")
+            Toast.makeText(this, "Finish the current PDF save first.", Toast.LENGTH_LONG).show()
+            return
         }
-        lifecycleScope.launch {
-            importStatus.value = "Adding edited PDF to your FileKhoj library…"
-            try {
-                val result = repository.importDocuments(listOf(uri))
-                importStatus.value = when {
-                    result.imported > 0 -> "Edited PDF saved and added to your FileKhoj library."
-                    result.alreadyPresent > 0 -> "Edited PDF saved. It is already present in your library."
-                    result.failed > 0 -> "The PDF was saved, but FileKhoj could not index the saved copy."
-                    else -> "The PDF was saved successfully."
-                }
-            } catch (error: Exception) {
-                importStatus.value = error.message ?: "PDF saved, but could not be added to the library."
-            }
+        if (!file.isFile || file.length() <= 5L) {
+            onComplete(false, "The generated PDF is missing or empty.")
+            return
+        }
+
+        pendingPdfExportFile = file
+        pendingPdfExportCompletion = onComplete
+        try {
+            Toast.makeText(this, "PDF generated. Choose a folder and tap Save.", Toast.LENGTH_LONG).show()
+            pdfExportLauncher.launch(file.name)
+        } catch (error: Exception) {
+            pendingPdfExportFile = null
+            pendingPdfExportCompletion = null
+            file.delete()
+            val detail = error.message ?: error.javaClass.simpleName
+            Log.e("ShabanaFileKhoj", "Could not launch Android CreateDocument picker", error)
+            val message = "Could not open Android Save As: $detail"
+            importStatus.value = message
+            onComplete(false, message)
+            Toast.makeText(this, message, Toast.LENGTH_LONG).show()
         }
     }
 
@@ -264,7 +356,7 @@ private fun FileKhojApp(
     onSearchSubmitted: (String) -> Unit,
     onImportClick: () -> Unit,
     onOpenDocument: (DocumentEntity) -> Unit,
-    onPdfSaved: (Uri) -> Unit,
+    onPdfSaveRequest: (File, (Boolean, String?) -> Unit) -> Unit,
     onStatus: (String) -> Unit
 ) {
     var query by remember { mutableStateOf("") }
@@ -744,7 +836,7 @@ private fun FileKhojApp(
             context = context,
             document = selectedPdf,
             onClose = { editingPdfDocument = null },
-            onSaved = onPdfSaved
+            onSaveCopy = onPdfSaveRequest
         )
     }
 
