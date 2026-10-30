@@ -67,6 +67,7 @@ class PdfSignatureVerifier {
         var sawUntrusted = false
         var sawExpired = false
         var sawIncomplete = false
+        var sawModifiedAfterSigning = false
         for (signature in signatures) {
             when (verifyOne(signature, pdfBytes)) {
                 DocumentEntity.SIGNATURE_STATUS_INVALID ->
@@ -74,12 +75,14 @@ class PdfSignatureVerifier {
                 DocumentEntity.SIGNATURE_STATUS_UNTRUSTED -> sawUntrusted = true
                 DocumentEntity.SIGNATURE_STATUS_EXPIRED -> sawExpired = true
                 DocumentEntity.SIGNATURE_STATUS_INCOMPLETE -> sawIncomplete = true
+                DocumentEntity.SIGNATURE_STATUS_MODIFIED_AFTER_SIGNING -> sawModifiedAfterSigning = true
             }
         }
         val status = when {
             sawIncomplete -> DocumentEntity.SIGNATURE_STATUS_INCOMPLETE
             sawExpired -> DocumentEntity.SIGNATURE_STATUS_EXPIRED
             sawUntrusted -> DocumentEntity.SIGNATURE_STATUS_UNTRUSTED
+            sawModifiedAfterSigning -> DocumentEntity.SIGNATURE_STATUS_MODIFIED_AFTER_SIGNING
             else -> DocumentEntity.SIGNATURE_STATUS_VERIFIED
         }
         return SignatureVerificationResult(status, signatures.size)
@@ -95,11 +98,10 @@ class PdfSignatureVerifier {
                 byteRange[3] < 0 ||
                 byteRange[2].toLong() + byteRange[3].toLong() > pdfBytes.size.toLong()
             ) return DocumentEntity.SIGNATURE_STATUS_INVALID
-            // An incremental update after the signed revision needs separate revision
-            // analysis; do not claim a fully verified, unchanged document in that case.
-            if (byteRange[2].toLong() + byteRange[3].toLong() < pdfBytes.size.toLong()) {
-                return DocumentEntity.SIGNATURE_STATUS_INCOMPLETE
-            }
+            // A trailing revision means the file changed after this signature was made.
+            // Still verify the exact signed byte ranges; report modification separately
+            // instead of skipping cryptographic verification altogether.
+            val modifiedAfterSigning = byteRange[2].toLong() + byteRange[3].toLong() < pdfBytes.size.toLong()
 
             val signedContent = signature.getSignedContent(pdfBytes)
             val paddedContents = signature.getContents(pdfBytes)
@@ -142,6 +144,7 @@ class PdfSignatureVerifier {
             when {
                 expired -> DocumentEntity.SIGNATURE_STATUS_EXPIRED
                 untrusted -> DocumentEntity.SIGNATURE_STATUS_UNTRUSTED
+                modifiedAfterSigning -> DocumentEntity.SIGNATURE_STATUS_MODIFIED_AFTER_SIGNING
                 else -> DocumentEntity.SIGNATURE_STATUS_VERIFIED
             }
         } catch (_: Exception) {
