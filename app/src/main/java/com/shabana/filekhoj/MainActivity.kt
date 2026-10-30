@@ -1236,7 +1236,9 @@ private fun DocumentRow(
                     DocumentEntity.SIGNATURE_STATUS_INVALID ->
                         "✕ Invalid signature • cryptographic verification failed"
                     DocumentEntity.SIGNATURE_STATUS_INCOMPLETE ->
-                        "⚠ Signature verification incomplete • document may have changed after signing"
+                        "⚠ Signature verification incomplete • could not verify signed bytes"
+                    DocumentEntity.SIGNATURE_STATUS_MODIFIED_AFTER_SIGNING ->
+                        "⚠ Signature bytes verified • PDF has changes after signing"
                     DocumentEntity.SIGNATURE_STATUS_UNSIGNED ->
                         "No digital signature"
                     else -> "Signature not checked"
@@ -1246,7 +1248,8 @@ private fun DocumentRow(
                     DocumentEntity.SIGNATURE_STATUS_INVALID -> Color(0xFFB3261E)
                     DocumentEntity.SIGNATURE_STATUS_UNTRUSTED,
                     DocumentEntity.SIGNATURE_STATUS_EXPIRED,
-                    DocumentEntity.SIGNATURE_STATUS_INCOMPLETE -> Color(0xFF9A6700)
+                    DocumentEntity.SIGNATURE_STATUS_INCOMPLETE,
+                    DocumentEntity.SIGNATURE_STATUS_MODIFIED_AFTER_SIGNING -> Color(0xFF9A6700)
                     else -> Color(0xFF66766D)
                 }
                 Text(
