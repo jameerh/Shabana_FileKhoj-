@@ -348,44 +348,51 @@ fun PdfEditorScreen(
                                 }
                             }
 
-                            if (selectedPageIndices.isNotEmpty()) {
-                                Card(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    colors = CardDefaults.cardColors(containerColor = Color(0xFFEAF1EC)),
-                                    shape = RoundedCornerShape(12.dp)
-                                ) {
-                                    Column(Modifier.fillMaxWidth().padding(8.dp),
-                                        verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                        Text("${selectedPageIndices.size} page(s) selected",
-                                            style = MaterialTheme.typography.labelLarge,
-                                            color = editorGreen, fontWeight = FontWeight.Bold)
-                                        Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-                                            OutlinedButton(
-                                                enabled = pages.indexOfFirst { it.sourceIndex in selectedPageIndices } > 0,
-                                                onClick = {
-                                                    updatePages(PdfEditorPageOperations.moveSelected(
-                                                        pages, selectedPageIndices, direction = -1
-                                                    ))
-                                                },
-                                                modifier = Modifier.weight(1f),
-                                                contentPadding = PaddingValues(horizontal = 2.dp)
-                                            ) { Text("↑ Move up", fontSize = 11.sp) }
-                                            OutlinedButton(
-                                                enabled = pages.indexOfLast { it.sourceIndex in selectedPageIndices } < pages.lastIndex,
-                                                onClick = {
-                                                    updatePages(PdfEditorPageOperations.moveSelected(
-                                                        pages, selectedPageIndices, direction = 1
-                                                    ))
-                                                },
-                                                modifier = Modifier.weight(1f),
-                                                contentPadding = PaddingValues(horizontal = 2.dp)
-                                            ) { Text("↓ Move down", fontSize = 11.sp) }
-                                            OutlinedButton(
-                                                onClick = { showDeleteConfirmation = true },
-                                                modifier = Modifier.weight(1f),
-                                                contentPadding = PaddingValues(horizontal = 2.dp)
-                                            ) { Text("Delete", fontSize = 11.sp) }
-                                        }
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = CardDefaults.cardColors(containerColor = Color(0xFFEAF1EC)),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Column(Modifier.fillMaxWidth().padding(8.dp),
+                                    verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Text(
+                                        if (selectedPageIndices.isEmpty()) {
+                                            "Select page(s) below to reorder or delete"
+                                        } else {
+                                            "${selectedPageIndices.size} page(s) selected"
+                                        },
+                                        style = MaterialTheme.typography.labelLarge,
+                                        color = editorGreen, fontWeight = FontWeight.Bold
+                                    )
+                                    Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                                        OutlinedButton(
+                                            enabled = selectedPageIndices.isNotEmpty() &&
+                                                pages.indexOfFirst { it.sourceIndex in selectedPageIndices } > 0,
+                                            onClick = {
+                                                updatePages(PdfEditorPageOperations.moveSelected(
+                                                    pages, selectedPageIndices, direction = -1
+                                                ))
+                                            },
+                                            modifier = Modifier.weight(1f),
+                                            contentPadding = PaddingValues(horizontal = 2.dp)
+                                        ) { Text("↑ Move up", fontSize = 11.sp) }
+                                        OutlinedButton(
+                                            enabled = selectedPageIndices.isNotEmpty() &&
+                                                pages.indexOfLast { it.sourceIndex in selectedPageIndices } < pages.lastIndex,
+                                            onClick = {
+                                                updatePages(PdfEditorPageOperations.moveSelected(
+                                                    pages, selectedPageIndices, direction = 1
+                                                ))
+                                            },
+                                            modifier = Modifier.weight(1f),
+                                            contentPadding = PaddingValues(horizontal = 2.dp)
+                                        ) { Text("↓ Move down", fontSize = 11.sp) }
+                                        OutlinedButton(
+                                            enabled = selectedPageIndices.isNotEmpty(),
+                                            onClick = { showDeleteConfirmation = true },
+                                            modifier = Modifier.weight(1f),
+                                            contentPadding = PaddingValues(horizontal = 2.dp)
+                                        ) { Text("Delete", fontSize = 11.sp) }
                                     }
                                 }
                             }
@@ -401,12 +408,6 @@ fun PdfEditorScreen(
                                     modifier = Modifier.weight(1f),
                                     contentPadding = PaddingValues(horizontal = 3.dp)
                                 ) { Text("↷ Redo", fontSize = 12.sp) }
-                                OutlinedButton(
-                                    enabled = selectedPageIndices.isNotEmpty(),
-                                    onClick = { showDeleteConfirmation = true },
-                                    modifier = Modifier.weight(1f),
-                                    contentPadding = PaddingValues(horizontal = 3.dp)
-                                ) { Text("Delete", fontSize = 12.sp) }
                             }
 
                             LazyColumn(
