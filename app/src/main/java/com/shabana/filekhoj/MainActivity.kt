@@ -271,6 +271,7 @@ private fun FileKhojApp(
     var mobileInput by remember { mutableStateOf("") }
     var locationInput by remember { mutableStateOf("") }
     var registrationError by remember { mutableStateOf<String?>(null) }
+    var registerAsAdmin by remember { mutableStateOf(false) }
     var pendingProfile by remember { mutableStateOf<LocalUserProfile?>(null) }
     var showPendingNotification by remember { mutableStateOf(false) }
     var whatsappOpened by remember { mutableStateOf(false) }
@@ -703,6 +704,24 @@ private fun FileKhojApp(
                     verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("फक्त आवश्यक माहिती भरा. App name आणि registration date आपोआप जोडली जातील.",
                         style = MaterialTheme.typography.bodySmall)
+                    if (profiles.none { it.role == UserRegistrationStore.ROLE_ADMIN }) {
+                        Text("Set up this phone as an administrator, or register this phone as a user.",
+                            style = MaterialTheme.typography.labelMedium)
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            FilterChip(selected = !registerAsAdmin,
+                                onClick = { registerAsAdmin = false }, label = { Text("User") })
+                            FilterChip(selected = registerAsAdmin,
+                                onClick = { registerAsAdmin = true }, label = { Text("Administrator") })
+                        }
+                        if (!registerAsAdmin) {
+                            OutlinedTextField(adminNumberDraft, { adminNumberDraft = it },
+                                Modifier.fillMaxWidth(), label = { Text("Admin WhatsApp number") },
+                                singleLine = true,
+                                keyboardOptions = KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Phone))
+                            Text("This is an app setup contact, not part of your profile. It is required to notify the administrator.",
+                                style = MaterialTheme.typography.labelSmall, color = Color(0xFF64756C))
+                        }
+                    }
                     OutlinedTextField(nameInput, { nameInput = it }, Modifier.fillMaxWidth(),
                         label = { Text("Full name") }, singleLine = true)
                     OutlinedTextField(mobileInput, { mobileInput = it }, Modifier.fillMaxWidth(),
@@ -718,7 +737,12 @@ private fun FileKhojApp(
             confirmButton = {
                 TextButton(onClick = {
                     try {
-                        val profile = profilesStore.register(nameInput, mobileInput, locationInput)
+                        if (!registerAsAdmin && profiles.none { it.role == UserRegistrationStore.ROLE_ADMIN }) {
+                            profilesStore.setAdminWhatsappNumber(adminNumberDraft)
+                        }
+                        val profile = profilesStore.register(
+                            nameInput, mobileInput, locationInput, registerAsAdmin
+                        )
                         profiles = profilesStore.profiles()
                         activeProfile = profile
                         showRegistration = false
@@ -729,7 +753,7 @@ private fun FileKhojApp(
                             whatsappOpened = false
                             openRegistrationWhatsApp(profile)
                         } else {
-                            onStatus("First profile created as the administrator on this device. Configure the central admin contact before distributing user builds.")
+                            onStatus("Administrator profile created on this device. Share the configured admin WhatsApp contact with users installing on their own phones.")
                         }
                     } catch (error: IllegalArgumentException) {
                         registrationError = error.message ?: "Please check the details and try again."
@@ -776,6 +800,8 @@ private fun FileKhojApp(
                 TextButton(onClick = {
                     showProfile = false
                     nameInput = ""; mobileInput = ""; locationInput = ""; registrationError = null
+                    registerAsAdmin = false
+                    adminNumberDraft = profilesStore.adminWhatsappNumber()
                     showRegistration = true
                 }) { Text("＋ Add / Register user") }
             },
