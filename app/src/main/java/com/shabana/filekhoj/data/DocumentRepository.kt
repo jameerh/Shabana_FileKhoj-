@@ -4,6 +4,11 @@ import android.content.ContentResolver
 import android.content.Context
 import android.net.Uri
 import android.provider.OpenableColumns
+import androidx.work.Data
+import androidx.work.ExistingWorkPolicy
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkManager
+import androidx.work.workDataOf
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
@@ -96,6 +101,14 @@ class DocumentRepository(context: Context) {
                     managedCopy?.delete()
                 } else {
                     imported++
+                    val indexRequest = OneTimeWorkRequestBuilder<DocumentIndexWorker>()
+                        .setInputData(workDataOf(DocumentIndexWorker.KEY_DOCUMENT_ID to rowId))
+                        .build()
+                    WorkManager.getInstance(appContext).enqueueUniqueWork(
+                        "filekhoj-index-$rowId",
+                        ExistingWorkPolicy.KEEP,
+                        indexRequest
+                    )
                 }
             } catch (_: Exception) {
                 managedCopy?.delete()
