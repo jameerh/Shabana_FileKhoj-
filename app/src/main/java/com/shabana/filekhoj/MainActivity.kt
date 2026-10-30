@@ -227,13 +227,9 @@ private fun DocumentRow(document: DocumentEntity, onClick: () -> Unit) {
 }
 
 private fun formatSize(sizeBytes: Long): String = when {
-    sizeBytes < 1024L -> "${sizeBytes} B"
-    sizeBytes < 1024L * 1024L -> "${sizeBytes / 1024.0} KB".formatSizeDecimal()
-    else -> "${sizeBytes / (1024.0 * 1024.0)} MB".formatSizeDecimal()
-}
-
-private fun String.formatSizeDecimal(): String {
-    val number = toDoubleOrNull() ?: return this
-    return String.format(java.util.Locale.getDefault(), "%.1f", number) +
-        if (endsWith(" KB")) " KB" else " MB"
+    sizeBytes < 1024L -> "$sizeBytes B"
+    sizeBytes < 1024L * 1024L ->
+        String.format(java.util.Locale.getDefault(), "%.1f KB", sizeBytes / 1024.0)
+    else ->
+        String.format(java.util.Locale.getDefault(), "%.1f MB", sizeBytes / (1024.0 * 1024.0))
 }
