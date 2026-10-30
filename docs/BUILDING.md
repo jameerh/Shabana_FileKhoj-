@@ -1,30 +1,47 @@
 # Build and run in Android Studio
 
+## Toolchain baseline
+This project is aligned to the existing Shabana Android development environment:
+- Gradle 8.13
+- Android Gradle Plugin 8.8.2
+- Kotlin 2.0.21
+- KSP 2.0.21-1.0.28
+- Android SDK Platform 35 and Build Tools 35.0.0
+- JDK 21 runtime for Gradle; app bytecode target remains Java 17
+- Minimum Android API 24
+
+These values are the current project baseline, based on the existing Expo project's reported configuration. Reconfirm installed SDK packages locally before downloading anything.
+
 ## Requirements
-- Android Studio stable, Android SDK Platform 35, JDK 17.
-- Android emulator or a device with USB debugging enabled.
+- Android Studio with bundled JDK.
+- Android SDK Platform 35 and Build Tools 35.0.0.
+- Emulator or Android device with USB debugging enabled.
 
 ## Clone
-```bash
+```powershell
 git clone https://github.com/jameerh/Shabana_FileKhoj-.git
 cd Shabana_FileKhoj-
 ```
 
 ## Android Studio
 1. Open Android Studio and select the cloned repository root (contains `settings.gradle.kts`).
-2. Set Gradle JDK to 17 if prompted and allow Gradle sync.
-3. Install Android SDK Platform 35 from **Tools > SDK Manager** if requested.
-4. Start an emulator or connect an Android device with USB debugging.
-5. Select the `app` run configuration and press **Run**.
+2. In **Settings > Build, Execution, Deployment > Build Tools > Gradle**, select the same bundled JDK 21 used by your working project, if available.
+3. Allow Gradle sync to finish.
+4. Install Android SDK Platform 35 and Build Tools 35.0.0 from **Tools > SDK Manager** only if missing.
+5. Start an emulator or connect a device with USB debugging.
+6. Select the `app` run configuration and press **Run**.
 
-## Command line
-After generating and committing the Gradle wrapper:
-- Linux/macOS: `./gradlew assembleDebug`
-- Windows: `gradlew.bat assembleDebug`
+## Gradle wrapper
+The wrapper JAR and scripts are not committed yet. From the repository root, use an installed Gradle 8.13 to generate them:
+```powershell
+gradle wrapper --gradle-version 8.13
+```
+Commit `gradlew`, `gradlew.bat`, and `gradle/wrapper/` after generation. Then build using:
+```powershell
+.\gradlew.bat assembleDebug
+.\gradlew.bat test
+```
 
-APK: `app/build/outputs/apk/debug/app-debug.apk`
+APK output: `app/build/outputs/apk/debug/app-debug.apk`.
 
-## Wrapper note
-Wrapper scripts/JAR are not included yet. Install Gradle and run `gradle wrapper --gradle-version 8.9`; commit `gradlew`, `gradlew.bat`, and `gradle/wrapper/` before depending on wrapper commands.
-
-Never commit `local.properties`, signing keys, secrets, or user documents. This repository is a starter scaffold, not the completed document application.
+Never commit `local.properties`, signing keys, secrets, generated build outputs, or customer documents. The scaffold has not been locally built as part of this change; run the build and tests after sync.
