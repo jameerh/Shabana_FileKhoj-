@@ -17,6 +17,20 @@ class PdfEditorPageOperationsTest {
     }
 
     @Test
+    fun moveSelectedMovesContiguousSelectionOnePositionUp() {
+        val pages = PdfEditorPageOperations.initial(5)
+        val moved = PdfEditorPageOperations.moveSelected(pages, setOf(2, 3), direction = -1)
+        assertEquals(listOf(0, 2, 3, 1, 4), moved.map { it.sourceIndex })
+    }
+
+    @Test
+    fun moveSelectedMovesMultiplePagesDownAsAStableGroup() {
+        val pages = PdfEditorPageOperations.initial(5)
+        val moved = PdfEditorPageOperations.moveSelected(pages, setOf(1, 3), direction = 1)
+        assertEquals(listOf(0, 2, 1, 4, 3), moved.map { it.sourceIndex })
+    }
+
+    @Test
     fun rotateAppliesClockwiseAndAnticlockwiseDeltas() {
         val pages = PdfEditorPageOperations.initial(2)
         val clockwise = PdfEditorPageOperations.rotate(pages, setOf(0), clockwise = true)
