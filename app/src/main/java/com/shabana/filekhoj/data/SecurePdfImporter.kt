@@ -10,8 +10,12 @@ import java.io.IOException
 import java.util.UUID
 
 sealed interface PdfPreparationResult {
-    data object OriginalUnencrypted : PdfPreparationResult
-    data class DecryptedCopy(val file: File) : PdfPreparationResult
+    data class OriginalUnencrypted(val signatureStatus: String, val signatureCount: Int) : PdfPreparationResult
+    data class DecryptedCopy(
+        val file: File,
+        val signatureStatus: String,
+        val signatureCount: Int
+    ) : PdfPreparationResult
     data object PasswordRequired : PdfPreparationResult
     data class Failed(val reason: PdfPreparationFailure) : PdfPreparationResult
 }
@@ -50,8 +54,12 @@ class SecurePdfImporter(context: Context) {
 
             try {
                 PDDocument.load(temporary, password ?: "").use { document ->
+                    val signatureResult = PdfSignatureVerifier().verify(document, temporary)
                     if (!document.isEncrypted) {
-                        return PdfPreparationResult.OriginalUnencrypted
+                        return PdfPreparationResult.OriginalUnencrypted(
+                            signatureResult.status,
+                            signatureResult.signatureCount
+                        )
                     }
 
                     val destinationDirectory = File(appContext.filesDir, "documents").apply {
@@ -67,7 +75,11 @@ class SecurePdfImporter(context: Context) {
                             destination.delete()
                             return PdfPreparationResult.Failed(PdfPreparationFailure.STORAGE_UNAVAILABLE)
                         }
-                        PdfPreparationResult.DecryptedCopy(destination)
+                        PdfPreparationResult.DecryptedCopy(
+                            destination,
+                            signatureResult.status,
+                            signatureResult.signatureCount
+                        )
                     } catch (_: Exception) {
                         destination.delete()
                         PdfPreparationResult.Failed(PdfPreparationFailure.STORAGE_UNAVAILABLE)
