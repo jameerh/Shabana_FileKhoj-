@@ -211,7 +211,11 @@ private fun FileKhojApp(
             matchesQuery && matchesType && matchesDate
         }
     }
-    val visibleIds = filteredDocuments.map { it.id }.toSet()
+    val visibleIds = remember(filteredDocuments) { filteredDocuments.map { it.id }.toSet() }
+    LaunchedEffect(visibleIds) {
+        // Selection is scoped to visible results: hidden rows never remain selected for bulk actions.
+        selectedIds = selectedIds.intersect(visibleIds)
+    }
     val allVisibleSelected = visibleIds.isNotEmpty() && selectedIds.containsAll(visibleIds)
 
     MaterialTheme {
