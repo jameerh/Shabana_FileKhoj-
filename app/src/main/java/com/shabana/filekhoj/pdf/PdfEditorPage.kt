@@ -8,7 +8,7 @@ data class PdfEditorPage(
 object PdfEditorPageOperations {
     fun initial(pageCount: Int): List<PdfEditorPage> {
         require(pageCount > 0) { "The PDF does not contain any pages." }
-        return (0 until pageCount).map(::PdfEditorPage)
+        return (0 until pageCount).map { index -> PdfEditorPage(sourceIndex = index) }
     }
 
     fun move(pages: List<PdfEditorPage>, fromIndex: Int, toIndex: Int): List<PdfEditorPage> {
