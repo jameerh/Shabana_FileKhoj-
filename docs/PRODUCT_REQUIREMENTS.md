@@ -71,3 +71,20 @@
 - Require the user to return to FileKhoj and confirm after sending. Android cannot prove that the user actually pressed Send or that the message was delivered; the UI must disclose this limitation.
 - The admin WhatsApp destination is a deployment setting and must be configured on each user device. WhatsApp is used only for the user-initiated registration notification; document import, indexing and search remain local.
 - Local profile switching is not identity authentication. Do not represent local roles as a secure organization-wide admin system. Server-backed authentication, OTP, central admin review and device-to-device registration sync remain future work.
+
+
+## S6 — Initial PDF editing requirements
+
+- Provide a dedicated PDF Editor workspace; keep file rename/category editing separate from PDF page editing.
+- Open only PDF records from the document library; show a clear error for unavailable, malformed or unsupported sources.
+- Work on a private temporary copy of the input. Never overwrite the source file or silently replace the library source.
+- Show page order, previews where rendered, current page count and multi-page selection.
+- Rotate one or many selected pages clockwise/anticlockwise by 90-degree steps.
+- Reorder pages using up/down controls in the initial release; drag-and-drop can be added after device validation.
+- Delete selected pages, but never allow a zero-page output.
+- Support bounded undo/redo for page order, rotation and deletion.
+- Save only as a new PDF copy through Android's document picker; import the saved output as a separate library entry.
+- Verify output can be reopened and expected page count/order/rotation match before offering Save As.
+- Warn that editing a signed PDF invalidates or removes the validity of its original digital signature; never carry over a verified status to the edited copy.
+- Initial safeguards: enforce documented source-size/page-count bounds, render a bounded thumbnail set, keep PDF processing off the UI thread and clean temporary files on close/cancel.
+- S6 initial scope does not include duplicate pages, drag-and-drop reordering, split/export selected pages, merging PDFs, image insertion, compression, watermark, annotation or text-content editing. Track these as later milestones.
