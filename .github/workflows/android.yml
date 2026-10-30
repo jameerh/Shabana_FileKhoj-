@@ -1,9 +1,11 @@
 name: Android CI
+
 on:
   push:
     branches: [ main ]
   pull_request:
   workflow_dispatch:
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -12,12 +14,14 @@ jobs:
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '17'
+          java-version: '21'
       - uses: android-actions/setup-android@v3
       - name: Install Android SDK
         run: yes | sdkmanager --licenses >/dev/null && sdkmanager 'platforms;android-35' 'build-tools;35.0.0'
       - uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: '8.9'
-      - run: gradle assembleDebug
-      - run: gradle test
+          gradle-version: '8.13'
+      - name: Build debug APK
+        run: gradle assembleDebug
+      - name: Run unit tests
+        run: gradle test
