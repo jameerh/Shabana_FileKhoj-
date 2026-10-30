@@ -51,5 +51,6 @@ data class DocumentEntity(
         const val SIGNATURE_STATUS_EXPIRED = "EXPIRED"
         const val SIGNATURE_STATUS_INVALID = "INVALID"
         const val SIGNATURE_STATUS_INCOMPLETE = "INCOMPLETE"
+        const val SIGNATURE_STATUS_MODIFIED_AFTER_SIGNING = "MODIFIED_AFTER_SIGNING"
     }
 }
