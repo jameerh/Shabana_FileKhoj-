@@ -31,12 +31,27 @@ data class SignatureVerificationResult(
  * equivalence; those cases must be described as a limitation rather than overclaimed.
  */
 class PdfSignatureVerifier {
-    fun verify(document: PDDocument, sourcePdf: File): SignatureVerificationResult =
-        try {
+    fun verify(document: PDDocument, sourcePdf: File): SignatureVerificationResult {
+        val signatures = try {
+            document.signatureDictionaries
+        } catch (_: Exception) {
+            return SignatureVerificationResult(DocumentEntity.SIGNATURE_STATUS_INCOMPLETE, 0)
+        }
+        if (signatures.isEmpty()) {
+            return SignatureVerificationResult(DocumentEntity.SIGNATURE_STATUS_UNSIGNED, 0)
+        }
+        if (sourcePdf.length() > MAX_VERIFY_FILE_BYTES) {
+            return SignatureVerificationResult(
+                DocumentEntity.SIGNATURE_STATUS_INCOMPLETE,
+                signatures.size
+            )
+        }
+        return try {
             verify(document, sourcePdf.readBytes())
         } catch (_: Exception) {
-            SignatureVerificationResult(DocumentEntity.SIGNATURE_STATUS_INCOMPLETE, 0)
+            SignatureVerificationResult(DocumentEntity.SIGNATURE_STATUS_INCOMPLETE, signatures.size)
         }
+    }
 
     fun verify(document: PDDocument, pdfBytes: ByteArray): SignatureVerificationResult {
         val signatures = try {
@@ -140,5 +155,9 @@ class PdfSignatureVerifier {
         } catch (_: Exception) {
             false
         }
+    }
+
+    companion object {
+        private const val MAX_VERIFY_FILE_BYTES = 128L * 1024L * 1024L
     }
 }
