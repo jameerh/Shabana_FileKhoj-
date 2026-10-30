@@ -1,9 +1,9 @@
 package com.shabana.filekhoj.pdf
 
 import android.content.Context
-import android.content.Intent
-import android.net.Uri
 import android.graphics.Bitmap
+import android.util.Log
+import android.widget.Toast
 import com.shabana.filekhoj.data.DocumentEntity
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -40,7 +40,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -53,8 +52,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import java.io.File
@@ -70,7 +67,7 @@ fun PdfEditorScreen(
     context: Context,
     document: DocumentEntity,
     onClose: () -> Unit,
-    onSaved: (Uri) -> Unit
+    onSaveCopy: (File, (Boolean, String?) -> Unit) -> Unit
 ) {
     var session by remember(document.id) { mutableStateOf<PdfEditorSession?>(null) }
     var pages by remember(document.id) { mutableStateOf(emptyList<PdfEditorPage>()) }
@@ -84,55 +81,10 @@ fun PdfEditorScreen(
     var isSaving by remember(document.id) { mutableStateOf(false) }
     var showDeleteConfirmation by remember { mutableStateOf(false) }
     var showExitOptions by remember { mutableStateOf(false) }
-    var pendingExportPath by rememberSaveable(document.id) { mutableStateOf<String?>(null) }
     var message by remember { mutableStateOf<String?>(null) }
     var loadError by remember { mutableStateOf<String?>(null) }
     var previewBitmap by remember { mutableStateOf<Bitmap?>(null) }
     val scope = rememberCoroutineScope()
-
-    val createDocumentLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.CreateDocument("application/pdf")
-    ) { destinationUri ->
-        val exportFile = pendingExportPath?.let(::File)
-        pendingExportPath = null
-
-        if (destinationUri == null) {
-            exportFile?.delete()
-            isSaving = false
-            message = "Save cancelled. Your edits are still open and the original PDF is unchanged."
-        } else if (exportFile == null || !exportFile.isFile) {
-            isSaving = false
-            message = "The temporary edited PDF is unavailable. Please tap Save as PDF copy again."
-        } else {
-            scope.launch {
-                try {
-                    withContext(Dispatchers.IO) {
-                        val destination = context.contentResolver.openOutputStream(destinationUri, "w")
-                            ?: throw IllegalStateException("Android could not open the selected save location.")
-                        destination.use { output ->
-                            exportFile.inputStream().use { input -> input.copyTo(output) }
-                        }
-                    }
-                    try {
-                        context.contentResolver.takePersistableUriPermission(
-                            destinationUri,
-                            Intent.FLAG_GRANT_READ_URI_PERMISSION
-                        )
-                    } catch (_: SecurityException) {
-                        // Some document providers grant only a temporary read permission.
-                    }
-                    onSaved(destinationUri)
-                    message = "PDF copy saved successfully."
-                    onClose()
-                } catch (error: Exception) {
-                    message = error.message ?: "Could not write the edited PDF to the selected location."
-                } finally {
-                    exportFile.delete()
-                    isSaving = false
-                }
-            }
-        }
-    }
 
     LaunchedEffect(document.id) {
         isLoading = true
@@ -200,12 +152,13 @@ fun PdfEditorScreen(
         if (isSaving) return
         val activeSession = session
         if (activeSession == null) {
-            message = "The PDF is not ready to save yet."
+            message = "The PDF is not ready to save yet. Wait until page loading is complete."
+            Toast.makeText(context, message, Toast.LENGTH_LONG).show()
             return
         }
 
         isSaving = true
-        message = "Applying page order and rotations and validating the new PDF…"
+        message = "Step 1 of 2: Creating and checking the edited PDF…"
         val currentPages = pages.toList()
         scope.launch {
             var outputFile: File? = null
@@ -213,15 +166,35 @@ fun PdfEditorScreen(
                 outputFile = withContext(Dispatchers.IO) {
                     activeSession.exportCopy(currentPages)
                 }
-                pendingExportPath = outputFile.absolutePath
-                val baseName = document.displayName.substringBeforeLast('.', document.displayName)
-                    .ifBlank { "FileKhoj_Document" }
-                createDocumentLauncher.launch("${baseName}_edited.pdf")
+                check(outputFile.isFile && outputFile.length() > 5L) {
+                    "The PDF export finished without creating a valid file."
+                }
+                message = "Step 2 of 2: Opening Android's Save As picker…"
+                Toast.makeText(context, "PDF ready. Choose a folder and tap Save.", Toast.LENGTH_LONG).show()
+
+                val fileForHost = outputFile
+                onSaveCopy(fileForHost) { success, feedback ->
+                    isSaving = false
+                    if (success) {
+                        originalPages = currentPages
+                        undoStack = emptyList()
+                        redoStack = emptyList()
+                        selectedPageIndices = emptySet()
+                        message = feedback ?: "Edited PDF saved successfully."
+                        Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+                    } else {
+                        message = feedback ?: "PDF was not saved. Your edits are still open."
+                        Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+                    }
+                }
+                outputFile = null // ownership transfers to MainActivity
             } catch (error: Exception) {
                 outputFile?.delete()
-                pendingExportPath = null
                 isSaving = false
-                message = error.message ?: "Could not prepare the edited PDF copy."
+                val detail = error.message ?: error.javaClass.simpleName
+                message = "Could not save PDF: $detail"
+                Log.e("ShabanaFileKhoj", "PDF editor Save as Copy failed", error)
+                Toast.makeText(context, message, Toast.LENGTH_LONG).show()
             }
         }
     }
@@ -268,7 +241,7 @@ fun PdfEditorScreen(
                         }
                         TextButton(onClick = {
                             if (isSaving) {
-                                message = "Finish or cancel the Save As operation before closing."
+                                message = "Complete or cancel the Android Save As picker before closing."
                             } else if (isDirty) {
                                 showExitOptions = true
                             } else {
