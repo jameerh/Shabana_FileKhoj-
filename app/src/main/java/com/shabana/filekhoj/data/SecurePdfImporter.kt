@@ -36,6 +36,10 @@ enum class PdfPreparationFailure {
 class SecurePdfImporter(context: Context) {
     private val appContext = context.applicationContext
 
+    companion object {
+        private const val MAX_IMPORT_SOURCE_BYTES = 512L * 1024L * 1024L
+    }
+
     init {
         PDFBoxResourceLoader.init(appContext)
     }
@@ -44,7 +48,17 @@ class SecurePdfImporter(context: Context) {
         val temporary = File.createTempFile("filekhoj-pdf-", ".tmp", appContext.cacheDir)
         return try {
             val copied = appContext.contentResolver.openInputStream(sourceUri)?.use { input ->
-                temporary.outputStream().buffered().use { output -> input.copyTo(output) }
+                temporary.outputStream().buffered().use { output ->
+                    val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                    var total = 0L
+                    while (true) {
+                        val read = input.read(buffer)
+                        if (read < 0) break
+                        total += read
+                        if (total > MAX_IMPORT_SOURCE_BYTES) throw IOException("PDF exceeds import size limit")
+                        output.write(buffer, 0, read)
+                    }
+                }
                 true
             } ?: false
 
