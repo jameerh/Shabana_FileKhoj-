@@ -65,17 +65,20 @@ class PdfSignatureVerifier {
         }
 
         var sawUntrusted = false
+        var sawExpired = false
         var sawIncomplete = false
         for (signature in signatures) {
             when (verifyOne(signature, pdfBytes)) {
                 DocumentEntity.SIGNATURE_STATUS_INVALID ->
                     return SignatureVerificationResult(DocumentEntity.SIGNATURE_STATUS_INVALID, signatures.size)
                 DocumentEntity.SIGNATURE_STATUS_UNTRUSTED -> sawUntrusted = true
+                DocumentEntity.SIGNATURE_STATUS_EXPIRED -> sawExpired = true
                 DocumentEntity.SIGNATURE_STATUS_INCOMPLETE -> sawIncomplete = true
             }
         }
         val status = when {
             sawIncomplete -> DocumentEntity.SIGNATURE_STATUS_INCOMPLETE
+            sawExpired -> DocumentEntity.SIGNATURE_STATUS_EXPIRED
             sawUntrusted -> DocumentEntity.SIGNATURE_STATUS_UNTRUSTED
             else -> DocumentEntity.SIGNATURE_STATUS_VERIFIED
         }
@@ -113,6 +116,7 @@ class PdfSignatureVerifier {
                 JcaX509CertificateConverter().getCertificate(it)
             }
             var untrusted = false
+            var expired = false
             for (signer in signers) {
                 val signerId = signer.sid
                 val issuerName = signerId.issuer?.toString()
@@ -126,10 +130,20 @@ class PdfSignatureVerifier {
                     JcaSimpleSignerInfoVerifierBuilder().build(certificate)
                 )
                 if (!cryptographicallyValid) return DocumentEntity.SIGNATURE_STATUS_INVALID
+                try {
+                    certificate.checkValidity(Date())
+                } catch (_: java.security.cert.CertificateExpiredException) {
+                    expired = true
+                } catch (_: java.security.cert.CertificateNotYetValidException) {
+                    return DocumentEntity.SIGNATURE_STATUS_UNTRUSTED
+                }
                 if (!hasTrustedPath(certificate, allCertificates)) untrusted = true
             }
-            if (untrusted) DocumentEntity.SIGNATURE_STATUS_UNTRUSTED
-            else DocumentEntity.SIGNATURE_STATUS_VERIFIED
+            when {
+                expired -> DocumentEntity.SIGNATURE_STATUS_EXPIRED
+                untrusted -> DocumentEntity.SIGNATURE_STATUS_UNTRUSTED
+                else -> DocumentEntity.SIGNATURE_STATUS_VERIFIED
+            }
         } catch (_: Exception) {
             DocumentEntity.SIGNATURE_STATUS_INCOMPLETE
         }
