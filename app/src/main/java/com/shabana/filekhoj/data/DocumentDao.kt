@@ -93,7 +93,16 @@ interface DocumentDao {
     suspend fun setFavourite(id: Long, favourite: Boolean)
 
     @Query("UPDATE documents SET displayName = :displayName, category = :category WHERE id = :id")
-    suspend fun updateUserMetadata(id: Long, displayName: String, category: String?)
+    suspend fun updateUserMetadataFields(id: Long, displayName: String, category: String?)
+
+    @Query("UPDATE document_fts SET displayName = :displayName WHERE rowid = :id")
+    suspend fun updateIndexedDisplayName(id: Long, displayName: String)
+
+    @Transaction
+    suspend fun updateUserMetadata(id: Long, displayName: String, category: String?) {
+        updateUserMetadataFields(id, displayName, category)
+        updateIndexedDisplayName(id, displayName)
+    }
 
     @Query("UPDATE documents SET signatureStatus = :status, signatureCount = :count WHERE id = :id")
     suspend fun updateSignatureStatus(id: Long, status: String, count: Int)
