@@ -42,3 +42,31 @@
 - p95 <=50 ms at 10k and <=100 ms at 100k for metadata/full-text query on a named reference device and dataset.
 - No OCR or full-file scan on query path; bounded pagination/concurrency; idempotent retries.
 - No stale index after committed update/delete; recoverable jobs and verified restore.
+
+
+## S6 — Initial PDF Editor foundation (implemented in source; validation pending)
+
+- Dedicated full-screen editor workspace launched from a PDF document's More → Edit PDF pages action.
+- Load source PDF into a bounded app-cache working copy; preserve the original URI or app-private decrypted source.
+- Generate first-page and page-list previews with a bounded thumbnail count.
+- Select one or multiple pages.
+- Rotate selected pages clockwise or anticlockwise by 90-degree increments.
+- Reorder pages using explicit up/down page controls.
+- Delete selected pages while preventing an empty PDF.
+- Undo/redo page order, rotation and deletion operations (bounded history).
+- Save as Copy through Android's document picker; import successful output as a new FileKhoj library item.
+- Verify exported page count and page rotations after saving; preserve the source file and never overwrite it.
+- Disclose that editing a digitally signed PDF does not retain the original signature's validity.
+- Initial constraints: 250 MB maximum source size; 10,000 maximum source pages; thumbnails rendered for the first 48 pages; duplicate-page operation, drag-and-drop reorder, extraction to separate PDFs, merge, image insertion and advanced editing are not part of this S6 initial cut.
+
+### S6 acceptance tests
+
+- Open a multi-page PDF from both a normal content URI and an app-private decrypted copy.
+- Rotate individual and multiple pages in both directions; verify resulting orientation in the exported file.
+- Reorder first/middle/last pages and verify page identity/order after reopen.
+- Delete one and multiple pages; verify all pages cannot be deleted.
+- Undo and redo every edit operation.
+- Cancel Save As and confirm no new library entry is created.
+- Save a copy, verify page count/order/rotation and confirm source bytes remain unchanged.
+- Open an edited signed PDF and ensure its signature is not shown as inherited/verified from the source.
+- Test malformed, encrypted, large and high-page-count PDFs; fail safely without changing the original.
