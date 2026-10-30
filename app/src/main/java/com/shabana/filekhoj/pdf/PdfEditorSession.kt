@@ -51,7 +51,7 @@ class PdfEditorSession private constructor(
 
         val sourcePages = (0 until pageCount).map(document::getPage)
         val originalRotations = sourcePages.map { it.rotation }
-        val exportDirectory = File(context.cacheDir, "filekhoj_pdf_exports")
+        val exportDirectory = File(context.filesDir, "filekhoj_pdf_exports")
         if (!exportDirectory.exists() && !exportDirectory.mkdirs()) {
             throw IllegalStateException("Could not create the PDF export workspace.")
         }
@@ -69,6 +69,17 @@ class PdfEditorSession private constructor(
             sourcePages.forEach(document::removePage)
             orderedPages.forEach(document::addPage)
             document.save(outputFile)
+            check(outputFile.isFile && outputFile.length() > 5L) {
+                "PDFBox did not produce a usable output file."
+            }
+
+            outputFile.inputStream().use { input ->
+                val header = ByteArray(5)
+                val count = input.read(header)
+                check(count == 5 && String(header, Charsets.US_ASCII) == "%PDF-") {
+                    "The generated output does not have a valid PDF header."
+                }
+            }
 
             PDDocument.load(outputFile, memoryUsageSetting(context)).use { verification ->
                 check(verification.numberOfPages == pages.size) {
