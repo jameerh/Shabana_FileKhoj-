@@ -16,6 +16,17 @@ interface DocumentDao {
     @Query("SELECT COUNT(*) FROM documents")
     fun observeCount(): Flow<Int>
 
+    @Query("""
+        SELECT documents.* FROM documents
+        INNER JOIN document_fts ON document_fts.rowid = documents.id
+        WHERE document_fts MATCH :ftsQuery
+        ORDER BY documents.dateAdded DESC, documents.id DESC
+    """)
+    suspend fun searchFullText(ftsQuery: String): List<DocumentEntity>
+
+    @Query("SELECT * FROM document_text WHERE documentId = :documentId LIMIT 1")
+    suspend fun findExtractedText(documentId: Long): DocumentTextEntity?
+
     @Query("SELECT * FROM documents WHERE sourceUri = :sourceUri LIMIT 1")
     suspend fun findBySourceUri(sourceUri: String): DocumentEntity?
 
@@ -24,6 +35,21 @@ interface DocumentDao {
 
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insert(document: DocumentEntity): Long
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertExtractedText(text: DocumentTextEntity)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertFullTextIndex(index: DocumentFtsEntity)
+
+    @Query("DELETE FROM document_text WHERE documentId = :documentId")
+    suspend fun deleteExtractedText(documentId: Long)
+
+    @Query("DELETE FROM document_fts WHERE rowid = :documentId")
+    suspend fun deleteFullTextIndex(documentId: Long)
+
+    @Query("UPDATE documents SET indexStatus = :status WHERE id = :id")
+    suspend fun updateIndexStatus(id: Long, status: String)
 
     @Update
     suspend fun update(document: DocumentEntity)
