@@ -771,6 +771,41 @@ private fun FileKhojApp(
                                         modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
                                     if (visibleSelectedIds.isNotEmpty()) {
                                         Text("${visibleSelectedIds.size} selected", style = MaterialTheme.typography.labelSmall)
+                                        TextButton(onClick = {
+                                            val selectedDocuments = documents.filter { it.id in visibleSelectedIds }
+                                            try {
+                                                val shareUris = ArrayList<Uri>()
+                                                selectedDocuments.forEach { document ->
+                                                    val uri = if (document.isStoredDecrypted) {
+                                                        val managedFile = document.managedPath?.let(::File)
+                                                        if (managedFile == null || !managedFile.isFile) {
+                                                            throw IllegalStateException("Unlocked copy missing: ${document.displayName}")
+                                                        }
+                                                        FileProvider.getUriForFile(
+                                                            context,
+                                                            "${context.packageName}.fileprovider",
+                                                            managedFile
+                                                        )
+                                                    } else {
+                                                        Uri.parse(document.sourceUri)
+                                                    }
+                                                    shareUris.add(uri)
+                                                }
+                                                if (shareUris.isEmpty()) {
+                                                    onStatus("Select at least one file to share.")
+                                                } else {
+                                                    val shareIntent = Intent(Intent.ACTION_SEND_MULTIPLE).apply {
+                                                        type = "*/*"
+                                                        putParcelableArrayListExtra(Intent.EXTRA_STREAM, shareUris)
+                                                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                                    }
+                                                    context.startActivity(Intent.createChooser(shareIntent, "Share selected files"))
+                                                    onStatus("Choose an app to share ${shareUris.size} selected file(s).")
+                                                }
+                                            } catch (error: Exception) {
+                                                onStatus("Could not share selected files: ${error.message ?: error.javaClass.simpleName}")
+                                            }
+                                        }) { Text("Share") }
                                         TextButton(onClick = { showDeleteConfirmation = true }) { Text("Remove") }
                                         TextButton(onClick = { selectedIds = emptySet() }) { Text("Clear") }
                                     }
