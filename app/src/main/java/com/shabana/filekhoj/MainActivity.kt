@@ -1267,9 +1267,9 @@ private fun DocumentRow(
                     DocumentEntity.SIGNATURE_STATUS_UNTRUSTED ->
                         "⚠ Signature found • signer certificate is not trusted"
                     DocumentEntity.SIGNATURE_STATUS_EXPIRED ->
-                        "⚠ Signature cryptographically valid • signer certificate expired; signing time not established"
+                        "⚠ Signature cryptographically valid • certificate is expired now; FileKhoj could not establish trusted signing time or certificate trust"
                     DocumentEntity.SIGNATURE_STATUS_VALID_AT_SIGNING_TIME ->
-                        "⚠ Signature cryptographically valid • certificate was valid on the PDF's claimed signing date; timestamp and trust not confirmed"
+                        "⚠ Signature cryptographically valid • certificate matched the PDF's claimed signing date; trusted timestamp and certificate trust not confirmed"
                     DocumentEntity.SIGNATURE_STATUS_INVALID ->
                         "✕ Invalid signature • cryptographic verification failed"
                     DocumentEntity.SIGNATURE_STATUS_INCOMPLETE ->
