@@ -972,12 +972,15 @@ private fun FileKhojApp(
                                 onFavourite = {
                                     scope.launch { repository.setFavourite(document.id, !document.isFavourite) }
                                 },
-                                onCustomize = { customizingDocument = document },
+                                onCustomize = {
+                                    customLabelDraft = cardPrefs.getString("labels_${document.id}", "").orEmpty()
+                                        .split("\u001F").filter(String::isNotBlank).joinToString(", ")
+                                    customColorDraft = cardPrefs.getInt("color_${document.id}", 0xFFFFFFFF.toInt())
+                                    customizingDocument = document
+                                },
                                 customColor = cardPrefs.getInt("color_${document.id}", 0xFFFFFFFF.toInt()),
                                 customLabels = cardPrefs.getString("labels_${document.id}", "").orEmpty()
-                                    .split("\u001F").filter(String::isNotBlank),
-                                onEdit = { editingDocument = document },
-                                onEditPdf = { editingPdfDocument = document }
+                                    .split("\u001F").filter(String::isNotBlank)
                             )
                         }
                     }
