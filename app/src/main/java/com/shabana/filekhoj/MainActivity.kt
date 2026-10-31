@@ -87,6 +87,11 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import androidx.lifecycle.lifecycleScope
+import androidx.work.ExistingWorkPolicy
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkManager
+import com.shabana.filekhoj.data.BackupRestoreManager
+import com.shabana.filekhoj.data.ScheduledBackupWorker
 import com.shabana.filekhoj.data.DocumentEntity
 import com.shabana.filekhoj.data.DocumentRepository
 import com.shabana.filekhoj.pdf.PdfEditorScreen
@@ -115,6 +120,9 @@ class MainActivity : ComponentActivity() {
     private lateinit var documentPicker: ActivityResultLauncher<Array<String>>
     private lateinit var pdfExportLauncher: ActivityResultLauncher<String>
     private lateinit var exportFolderLauncher: ActivityResultLauncher<Uri?>
+    private lateinit var backupExportLauncher: ActivityResultLauncher<String>
+    private lateinit var backupRestoreLauncher: ActivityResultLauncher<Array<String>>
+    private var pendingBackupFile: File? = null
     private var pendingPdfExportFile: File? = null
     private var pendingBulkExportDocuments: List<DocumentEntity> = emptyList()
     private var pendingPdfExportCompletion: ((Boolean, String?) -> Unit)? = null
@@ -128,6 +136,11 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         repository = DocumentRepository(applicationContext)
+        val savedBackupInterval = getSharedPreferences(ScheduledBackupWorker.PREFS, Context.MODE_PRIVATE).getLong(ScheduledBackupWorker.KEY_INTERVAL_DAYS, 0L).toInt()
+        if (savedBackupInterval in setOf(1, 7, 30)) {
+            ScheduledBackupWorker.schedule(applicationContext, savedBackupInterval)
+            WorkManager.getInstance(applicationContext).enqueueUniqueWork("filekhoj-backup-on-launch", ExistingWorkPolicy.KEEP, OneTimeWorkRequestBuilder<ScheduledBackupWorker>().build())
+        }
         searchHistory.value = prefs.getString("recent_searches", "")
             .orEmpty().split("\n").filter(String::isNotBlank).take(3)
 
