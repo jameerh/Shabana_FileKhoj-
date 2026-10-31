@@ -128,11 +128,25 @@ class PdfSignatureVerifier {
                 // distinguished names to strings. This avoids formatting differences
                 // between equivalent X.500 names and works with the bundled BC API.
                 val signerId = signer.sid
+                // CMS SignerIdentifier can be issuer+serial OR subjectKeyIdentifier.
+                // Handle both forms: some government e-sign providers use SKI.
                 val signerCertificateHolder = allCertificateHolders.firstOrNull { holder ->
-                    signerId.serialNumber != null &&
-                        signerId.serialNumber == holder.serialNumber &&
-                        signerId.issuer != null &&
-                        signerId.issuer == holder.issuer
+                    if (signerId.subjectKeyIdentifier != null) {
+                        val extension = holder.extensions?.getExtension(
+                            org.bouncycastle.asn1.x509.Extension.subjectKeyIdentifier
+                        )
+                        val subjectKeyIdentifier = extension?.let {
+                            org.bouncycastle.asn1.x509.SubjectKeyIdentifier
+                                .getInstance(it.parsedValue).keyIdentifier
+                        }
+                        subjectKeyIdentifier != null &&
+                            subjectKeyIdentifier.contentEquals(signerId.subjectKeyIdentifier)
+                    } else {
+                        signerId.serialNumber != null &&
+                            signerId.serialNumber == holder.serialNumber &&
+                            signerId.issuer != null &&
+                            signerId.issuer == holder.issuer
+                    }
                 } ?: return DocumentEntity.SIGNATURE_STATUS_INCOMPLETE
                 val certificate = JcaX509CertificateConverter()
                     .getCertificate(signerCertificateHolder as X509CertificateHolder)
