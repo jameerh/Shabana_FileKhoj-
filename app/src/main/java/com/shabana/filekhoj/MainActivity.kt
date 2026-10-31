@@ -1267,7 +1267,9 @@ private fun DocumentRow(
                     DocumentEntity.SIGNATURE_STATUS_UNTRUSTED ->
                         "⚠ Signature found • signer certificate is not trusted"
                     DocumentEntity.SIGNATURE_STATUS_EXPIRED ->
-                        "⚠ Signature found • signer certificate is expired; trusted timestamp not checked"
+                        "⚠ Signature cryptographically valid • signer certificate expired; signing time not established"
+                    DocumentEntity.SIGNATURE_STATUS_VALID_AT_SIGNING_TIME ->
+                        "⚠ Signature cryptographically valid • certificate was valid on the PDF's claimed signing date; timestamp and trust not confirmed"
                     DocumentEntity.SIGNATURE_STATUS_INVALID ->
                         "✕ Invalid signature • cryptographic verification failed"
                     DocumentEntity.SIGNATURE_STATUS_INCOMPLETE ->
@@ -1283,6 +1285,7 @@ private fun DocumentRow(
                     DocumentEntity.SIGNATURE_STATUS_INVALID -> Color(0xFFB3261E)
                     DocumentEntity.SIGNATURE_STATUS_UNTRUSTED,
                     DocumentEntity.SIGNATURE_STATUS_EXPIRED,
+                    DocumentEntity.SIGNATURE_STATUS_VALID_AT_SIGNING_TIME,
                     DocumentEntity.SIGNATURE_STATUS_INCOMPLETE,
                     DocumentEntity.SIGNATURE_STATUS_MODIFIED_AFTER_SIGNING -> Color(0xFF9A6700)
                     else -> Color(0xFF66766D)
