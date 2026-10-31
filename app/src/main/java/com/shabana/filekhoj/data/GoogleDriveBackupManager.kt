@@ -48,10 +48,7 @@ class GoogleDriveBackupManager(private val context: Context) {
         require(zipFile.isFile && zipFile.length() > 0L) { "Backup ZIP is empty or missing." }
         val token = accessToken()
         val folderId = getOrCreateFolder(token)
-        // Keep a single canonical full backup, matching ERP's latest-backup behavior.
-        listFiles(token, "name = '$BACKUP_NAME' and '$folderId' in parents and trashed = false")
-            .forEach { deleteFile(token, it.optString("id")) }
-
+        // Upload first; retain the previous good backup until the new archive is confirmed.
         val metadata = JSONObject()
             .put("name", BACKUP_NAME)
             .put("mimeType", "application/zip")
@@ -89,11 +86,16 @@ class GoogleDriveBackupManager(private val context: Context) {
             .header("Content-Range", "bytes 0-${zipFile.length() - 1}/${zipFile.length()}")
             .put(body)
             .build()
-        return client.newCall(upload).execute().use { response ->
+        val uploadedId = client.newCall(upload).execute().use { response ->
             if (!response.isSuccessful) throw IOException("Google Drive upload failed (HTTP ${response.code}).")
             JSONObject(response.body?.string().orEmpty()).optString("id")
                 .ifBlank { throw IOException("Google Drive upload completed without a file ID.") }
         }
+        // Only rotate old copies after the new archive has been confirmed by Drive.
+        listFiles(token, "name = '$BACKUP_NAME' and '$folderId' in parents and trashed = false")
+            .filter { it.optString("id") != uploadedId }
+            .forEach { deleteFile(token, it.optString("id")) }
+        return uploadedId
     }
 
     fun downloadLatestBackup(destination: File): String {
