@@ -85,6 +85,8 @@ fun PdfEditorScreen(
     var saveError by remember { mutableStateOf<String?>(null) }
     var loadError by remember { mutableStateOf<String?>(null) }
     var previewBitmap by remember { mutableStateOf<Bitmap?>(null) }
+    var selectedTool by remember(document.id) { mutableStateOf("Organize") }
+    var showPreview by remember(document.id) { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
     LaunchedEffect(document.id) {
@@ -299,63 +301,81 @@ fun PdfEditorScreen(
                             Modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 8.dp),
                             verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Card(
-                                Modifier.fillMaxWidth(),
-                                shape = RoundedCornerShape(16.dp),
-                                colors = CardDefaults.cardColors(containerColor = Color.White)
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Column(Modifier.fillMaxWidth().padding(10.dp),
-                                    verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Text("Page preview", Modifier.weight(1f),
-                                            style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-                                        Text(
-                                            "Page ${pages.indexOfFirst { it.sourceIndex == selectedPreviewIndex } + 1} of ${pages.size}",
-                                            style = MaterialTheme.typography.labelMedium, color = editorGreen
-                                        )
-                                    }
-                                    Box(
-                                        Modifier.fillMaxWidth().heightIn(min = 130.dp, max = 220.dp)
-                                            .clip(RoundedCornerShape(10.dp)).background(Color(0xFFF0F1EE)),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        if (previewBitmap != null) {
-                                            val rotation = pages.firstOrNull {
-                                                it.sourceIndex == selectedPreviewIndex
-                                            }?.rotationDelta ?: 0
-                                            Image(
-                                                bitmap = previewBitmap!!.asImageBitmap(),
-                                                contentDescription = "Selected PDF page preview",
-                                                modifier = Modifier.fillMaxSize().padding(6.dp)
-                                                    .graphicsLayer { rotationZ = rotation.toFloat() },
-                                                contentScale = ContentScale.Fit
+                                listOf("Organize", "Rotate", "Delete").forEach { tool ->
+                                    androidx.compose.material3.FilterChip(
+                                        selected = selectedTool == tool,
+                                        onClick = { selectedTool = tool },
+                                        label = { Text(tool) }
+                                    )
+                                }
+                                TextButton(onClick = { showPreview = !showPreview }) {
+                                    Text(if (showPreview) "Hide preview" else "Preview")
+                                }
+                            }
+                            Text(
+                                when (selectedTool) {
+                                    "Rotate" -> "ROTATE • Select pages below, then choose a rotation."
+                                    "Delete" -> "DELETE • Select pages to remove from the saved copy."
+                                    else -> "ORGANIZE • Select pages to move them up or down."
+                                },
+                                style = MaterialTheme.typography.labelSmall,
+                                color = editorGreen,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            if (showPreview) {
+                                Card(
+                                    Modifier.fillMaxWidth(),
+                                    shape = RoundedCornerShape(14.dp),
+                                    colors = CardDefaults.cardColors(containerColor = Color.White)
+                                ) {
+                                    Column(Modifier.fillMaxWidth().padding(8.dp),
+                                        verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Text("Page preview", Modifier.weight(1f),
+                                                style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                                            Text(
+                                                "Page ${pages.indexOfFirst { it.sourceIndex == selectedPreviewIndex } + 1} of ${pages.size}",
+                                                style = MaterialTheme.typography.labelMedium, color = editorGreen
                                             )
-                                        } else {
-                                            Text("Page preview")
+                                        }
+                                        Box(
+                                            Modifier.fillMaxWidth().heightIn(min = 80.dp, max = 135.dp)
+                                                .clip(RoundedCornerShape(10.dp)).background(Color(0xFFF0F1EE)),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            if (previewBitmap != null) {
+                                                val rotation = pages.firstOrNull { it.sourceIndex == selectedPreviewIndex }?.rotationDelta ?: 0
+                                                Image(
+                                                    bitmap = previewBitmap!!.asImageBitmap(),
+                                                    contentDescription = "Selected PDF page preview",
+                                                    modifier = Modifier.fillMaxSize().padding(4.dp)
+                                                        .graphicsLayer { rotationZ = rotation.toFloat() },
+                                                    contentScale = ContentScale.Fit
+                                                )
+                                            } else Text("Page preview")
                                         }
                                     }
-                                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                        OutlinedButton(
-                                            enabled = selectedPageIndices.isNotEmpty(),
-                                            onClick = {
-                                                updatePages(PdfEditorPageOperations.rotate(
-                                                    pages, selectedPageIndices, clockwise = false
-                                                ))
-                                            },
-                                            modifier = Modifier.weight(1f),
-                                            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 7.dp)
-                                        ) { Text("↶ Rotate 90°", fontSize = 12.sp) }
-                                        OutlinedButton(
-                                            enabled = selectedPageIndices.isNotEmpty(),
-                                            onClick = {
-                                                updatePages(PdfEditorPageOperations.rotate(
-                                                    pages, selectedPageIndices, clockwise = true
-                                                ))
-                                            },
-                                            modifier = Modifier.weight(1f),
-                                            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 7.dp)
-                                        ) { Text("↷ Rotate 90°", fontSize = 12.sp) }
-                                    }
+                                }
+                            }
+                            if (selectedTool == "Rotate") {
+                                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    OutlinedButton(
+                                        enabled = selectedPageIndices.isNotEmpty(),
+                                        onClick = { updatePages(PdfEditorPageOperations.rotate(pages, selectedPageIndices, clockwise = false)) },
+                                        modifier = Modifier.weight(1f),
+                                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 5.dp)
+                                    ) { Text("↶ Rotate 90°", fontSize = 12.sp) }
+                                    OutlinedButton(
+                                        enabled = selectedPageIndices.isNotEmpty(),
+                                        onClick = { updatePages(PdfEditorPageOperations.rotate(pages, selectedPageIndices, clockwise = true)) },
+                                        modifier = Modifier.weight(1f),
+                                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 5.dp)
+                                    ) { Text("↷ Rotate 90°", fontSize = 12.sp) }
                                 }
                             }
 
@@ -391,35 +411,32 @@ fun PdfEditorScreen(
                                         style = MaterialTheme.typography.labelLarge,
                                         color = editorGreen, fontWeight = FontWeight.Bold
                                     )
-                                    Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-                                        OutlinedButton(
-                                            enabled = selectedPageIndices.isNotEmpty() &&
-                                                pages.indexOfFirst { it.sourceIndex in selectedPageIndices } > 0,
-                                            onClick = {
-                                                updatePages(PdfEditorPageOperations.moveSelected(
-                                                    pages, selectedPageIndices, direction = -1
-                                                ))
-                                            },
-                                            modifier = Modifier.weight(1f),
-                                            contentPadding = PaddingValues(horizontal = 2.dp)
-                                        ) { Text("↑ Move up", fontSize = 11.sp) }
-                                        OutlinedButton(
-                                            enabled = selectedPageIndices.isNotEmpty() &&
-                                                pages.indexOfLast { it.sourceIndex in selectedPageIndices } < pages.lastIndex,
-                                            onClick = {
-                                                updatePages(PdfEditorPageOperations.moveSelected(
-                                                    pages, selectedPageIndices, direction = 1
-                                                ))
-                                            },
-                                            modifier = Modifier.weight(1f),
-                                            contentPadding = PaddingValues(horizontal = 2.dp)
-                                        ) { Text("↓ Move down", fontSize = 11.sp) }
-                                        OutlinedButton(
+                                    when (selectedTool) {
+                                        "Organize" -> Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                                            OutlinedButton(
+                                                enabled = selectedPageIndices.isNotEmpty() &&
+                                                    pages.indexOfFirst { it.sourceIndex in selectedPageIndices } > 0,
+                                                onClick = { updatePages(PdfEditorPageOperations.moveSelected(pages, selectedPageIndices, -1)) },
+                                                modifier = Modifier.weight(1f),
+                                                contentPadding = PaddingValues(horizontal = 2.dp)
+                                            ) { Text("↑ Move up", fontSize = 11.sp) }
+                                            OutlinedButton(
+                                                enabled = selectedPageIndices.isNotEmpty() &&
+                                                    pages.indexOfLast { it.sourceIndex in selectedPageIndices } < pages.lastIndex,
+                                                onClick = { updatePages(PdfEditorPageOperations.moveSelected(pages, selectedPageIndices, 1)) },
+                                                modifier = Modifier.weight(1f),
+                                                contentPadding = PaddingValues(horizontal = 2.dp)
+                                            ) { Text("↓ Move down", fontSize = 11.sp) }
+                                        }
+                                        "Delete" -> OutlinedButton(
                                             enabled = selectedPageIndices.isNotEmpty(),
                                             onClick = { showDeleteConfirmation = true },
-                                            modifier = Modifier.weight(1f),
-                                            contentPadding = PaddingValues(horizontal = 2.dp)
-                                        ) { Text("Delete", fontSize = 11.sp) }
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) { Text("Delete ${selectedPageIndices.size} selected page(s)") }
+                                        else -> Text(
+                                            "Use the rotate controls above for ${selectedPageIndices.size} selected page(s).",
+                                            style = MaterialTheme.typography.bodySmall, color = editorGreen
+                                        )
                                     }
                                 }
                             }
