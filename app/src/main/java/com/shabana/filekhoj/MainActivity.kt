@@ -1267,7 +1267,7 @@ private fun DocumentRow(
                     DocumentEntity.SIGNATURE_STATUS_UNTRUSTED ->
                         "⚠ Signature found • signer certificate is not trusted"
                     DocumentEntity.SIGNATURE_STATUS_EXPIRED ->
-                        "✓ Signature valid • signed bytes verified; certificate is expired now, and trusted signing time/certificate trust were not established"
+                        "✓ Signature cryptographically valid"
                     DocumentEntity.SIGNATURE_STATUS_VALID_AT_SIGNING_TIME ->
                         "⚠ Signature cryptographically valid • certificate matched the PDF's claimed signing date; trusted timestamp and certificate trust not confirmed"
                     DocumentEntity.SIGNATURE_STATUS_INVALID ->
@@ -1281,23 +1281,32 @@ private fun DocumentRow(
                     else -> "Signature not checked"
                 }
                 val signatureColor = when (document.signatureStatus) {
-                    DocumentEntity.SIGNATURE_STATUS_VERIFIED -> Color(0xFF188038)
+                    DocumentEntity.SIGNATURE_STATUS_VERIFIED,
+                    DocumentEntity.SIGNATURE_STATUS_EXPIRED -> Color(0xFF188038)
                     DocumentEntity.SIGNATURE_STATUS_INVALID -> Color(0xFFB3261E)
                     DocumentEntity.SIGNATURE_STATUS_UNTRUSTED,
-                    DocumentEntity.SIGNATURE_STATUS_EXPIRED,
                     DocumentEntity.SIGNATURE_STATUS_VALID_AT_SIGNING_TIME,
                     DocumentEntity.SIGNATURE_STATUS_INCOMPLETE,
                     DocumentEntity.SIGNATURE_STATUS_MODIFIED_AFTER_SIGNING -> Color(0xFF9A6700)
                     else -> Color(0xFF66766D)
                 }
-                Text(
-                    text = signatureLabel,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = signatureColor,
-                    fontWeight = if (document.signatureStatus == DocumentEntity.SIGNATURE_STATUS_VERIFIED ||
-                        document.signatureStatus == DocumentEntity.SIGNATURE_STATUS_EXPIRED)
-                        FontWeight.SemiBold else FontWeight.Normal
-                )
+                Column {
+                    Text(
+                        text = signatureLabel,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = signatureColor,
+                        fontWeight = if (document.signatureStatus == DocumentEntity.SIGNATURE_STATUS_VERIFIED ||
+                            document.signatureStatus == DocumentEntity.SIGNATURE_STATUS_EXPIRED)
+                            FontWeight.SemiBold else FontWeight.Normal
+                    )
+                    if (document.signatureStatus == DocumentEntity.SIGNATURE_STATUS_EXPIRED) {
+                        Text(
+                            text = "⚠ Certificate expired now; trusted signing time and certificate trust are not established.",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Color(0xFF9A6700)
+                        )
+                    }
+                }
             }
             var moreActionsExpanded by remember(document.id) { mutableStateOf(false) }
             Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
