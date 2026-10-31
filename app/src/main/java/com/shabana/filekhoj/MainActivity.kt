@@ -144,6 +144,39 @@ class MainActivity : ComponentActivity() {
         searchHistory.value = prefs.getString("recent_searches", "")
             .orEmpty().split("\n").filter(String::isNotBlank).take(3)
 
+        backupExportLauncher = registerForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { destinationUri ->
+            val backup = pendingBackupFile
+            pendingBackupFile = null
+            if (destinationUri == null || backup == null) importStatus.value = "Backup export cancelled."
+            else lifecycleScope.launch {
+                try {
+                    withContext(Dispatchers.IO) {
+                        contentResolver.openOutputStream(destinationUri, "w")?.use { output ->
+                            backup.inputStream().use { it.copyTo(output) }
+                        } ?: throw IllegalStateException("Could not write to destination.")
+                    }
+                    importStatus.value = "Backup exported successfully."
+                } catch (error: Exception) { importStatus.value = "Backup export failed: ${error.message}" }
+                finally { backup.delete() }
+            }
+        }
+        backupRestoreLauncher = registerForActivityResult(ActivityResultContracts.OpenDocument()) { sourceUri ->
+            if (sourceUri == null) importStatus.value = "Restore cancelled."
+            else lifecycleScope.launch {
+                val temp = File(cacheDir, "filekhoj-restore-${System.currentTimeMillis()}.zip")
+                try {
+                    withContext(Dispatchers.IO) {
+                        contentResolver.openInputStream(sourceUri)?.use { input ->
+                            temp.outputStream().buffered().use { input.copyTo(it) }
+                        } ?: throw IllegalStateException("Could not read backup.")
+                    }
+                    val result = withContext(Dispatchers.IO) { BackupRestoreManager(applicationContext).restoreBackup(temp) }
+                    importStatus.value = "Restore complete: ${result.restored} restored, ${result.skipped} skipped."
+                } catch (error: Exception) { importStatus.value = "Restore failed: ${error.message}. Existing library kept." }
+                finally { temp.delete() }
+            }
+        }
+
         exportFolderLauncher = registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { treeUri ->
             val selected = pendingBulkExportDocuments
             pendingBulkExportDocuments = emptyList()
