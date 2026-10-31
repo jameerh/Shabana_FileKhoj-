@@ -1450,7 +1450,10 @@ private fun DocumentRow(
     onEdit: () -> Unit,
     onEditPdf: () -> Unit,
     onDelete: () -> Unit,
-    onFavourite: () -> Unit
+    onFavourite: () -> Unit,
+    onCustomize: () -> Unit,
+    customColor: Int,
+    customLabels: List<String>
 ) {
     val isPdf = document.mimeType.contains("pdf", true)
     val isImage = document.mimeType.startsWith("image/")
@@ -1467,11 +1470,11 @@ private fun DocumentRow(
     }
     Card(
         modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = Color.White),
-        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(containerColor = Color(customColor)),
+        shape = RoundedCornerShape(16.dp),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
     ) {
-        Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+        Column(Modifier.fillMaxWidth().padding(9.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Checkbox(checked = selected, onCheckedChange = onSelectedChange)
                 Box(
@@ -1549,49 +1552,73 @@ private fun DocumentRow(
                     DocumentEntity.SIGNATURE_STATUS_MODIFIED_AFTER_SIGNING -> Color(0xFF9A6700)
                     else -> Color(0xFF66766D)
                 }
-                Column {
+                var signatureExpanded by remember(document.id) { mutableStateOf(false) }
+                Row(
+                    Modifier.fillMaxWidth().clickable { signatureExpanded = !signatureExpanded },
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     Text(
-                        text = signatureLabel,
+                        text = when (document.signatureStatus) {
+                            DocumentEntity.SIGNATURE_STATUS_VERIFIED -> "✓ Signature valid"
+                            DocumentEntity.SIGNATURE_STATUS_EXPIRED -> "✓ Signature cryptographically valid"
+                            DocumentEntity.SIGNATURE_STATUS_UNSIGNED -> "○ No digital signature"
+                            DocumentEntity.SIGNATURE_STATUS_INVALID -> "✕ Signature invalid"
+                            DocumentEntity.SIGNATURE_STATUS_UNTRUSTED -> "⚠ Signature untrusted"
+                            DocumentEntity.SIGNATURE_STATUS_VALID_AT_SIGNING_TIME -> "⚠ Valid at signing time"
+                            DocumentEntity.SIGNATURE_STATUS_MODIFIED_AFTER_SIGNING -> "⚠ Changed after signing"
+                            DocumentEntity.SIGNATURE_STATUS_INCOMPLETE -> "⚠ Verification incomplete"
+                            else -> "Signature not checked"
+                        },
+                        modifier = Modifier.weight(1f),
                         style = MaterialTheme.typography.labelSmall,
                         color = signatureColor,
-                        fontWeight = if (document.signatureStatus == DocumentEntity.SIGNATURE_STATUS_VERIFIED ||
-                            document.signatureStatus == DocumentEntity.SIGNATURE_STATUS_EXPIRED)
-                            FontWeight.SemiBold else FontWeight.Normal
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
+                    Text(if (signatureExpanded) "Less ▴" else "Details ▾",
+                        style = MaterialTheme.typography.labelSmall, color = Color(0xFF496354))
+                }
+                if (signatureExpanded) {
+                    Text(signatureLabel, style = MaterialTheme.typography.bodySmall, color = signatureColor)
                     if (document.signatureStatus == DocumentEntity.SIGNATURE_STATUS_EXPIRED) {
-                        Text(
-                            text = "⚠ Certificate expired now; trusted signing time and certificate trust are not established.",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = Color(0xFF9A6700)
-                        )
+                        Text("⚠ Certificate expired now; trusted signing time and certificate trust are not established.",
+                            style = MaterialTheme.typography.labelSmall, color = Color(0xFF9A6700))
                     }
                 }
             }
-            var moreActionsExpanded by remember(document.id) { mutableStateOf(false) }
-            Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
-                Box {
-                    TextButton(onClick = { moreActionsExpanded = true }) { Text("More") }
-                    DropdownMenu(
-                        expanded = moreActionsExpanded,
-                        onDismissRequest = { moreActionsExpanded = false }
-                    ) {
-                        DropdownMenuItem(
-                            text = { Text("Edit details") },
-                            onClick = { moreActionsExpanded = false; onEdit() }
-                        )
-                        if (isPdf) {
-                            DropdownMenuItem(
-                                text = { Text("Edit PDF pages") },
-                                onClick = { moreActionsExpanded = false; onEditPdf() }
-                            )
+            if (customLabels.isNotEmpty()) {
+                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                    customLabels.take(6).forEach { label ->
+                        Surface(shape = RoundedCornerShape(50), color = Color(0xFFE7EFE8)) {
+                            Text(label, Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                                style = MaterialTheme.typography.labelSmall, color = Color(0xFF214D39),
+                                maxLines = 1)
                         }
-                        DropdownMenuItem(
-                            text = { Text("Remove from library") },
-                            onClick = { moreActionsExpanded = false; onDelete() }
-                        )
                     }
                 }
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.End
+            ) {
+                TextButton(onClick = onEdit, contentPadding = PaddingValues(horizontal = 5.dp, vertical = 0.dp)) {
+                    Text("✎", fontSize = 18.sp, color = Color(0xFF07583D))
+                }
+                if (isPdf) {
+                    TextButton(onClick = onEditPdf, contentPadding = PaddingValues(horizontal = 5.dp, vertical = 0.dp)) {
+                        Text("▤✎", fontSize = 16.sp, color = Color(0xFF07583D))
+                    }
+                }
+                TextButton(onClick = onCustomize, contentPadding = PaddingValues(horizontal = 5.dp, vertical = 0.dp)) {
+                    Text("🏷", fontSize = 16.sp)
+                }
+                TextButton(onClick = onDelete, contentPadding = PaddingValues(horizontal = 5.dp, vertical = 0.dp)) {
+                    Text("🗑", fontSize = 16.sp, color = Color(0xFFB3261E))
+                }
                 Button(onClick = onClick, shape = RoundedCornerShape(50),
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 5.dp),
                     colors = androidx.compose.material3.ButtonDefaults.buttonColors(
                         containerColor = Color(0xFF07583D))) { Text("Open") }
             }
