@@ -91,6 +91,11 @@ import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import com.shabana.filekhoj.data.BackupRestoreManager
+import com.shabana.filekhoj.data.GoogleDriveBackupManager
+import com.google.android.gms.auth.api.signin.GoogleSignIn
+import com.google.android.gms.auth.api.signin.GoogleSignInOptions
+import com.google.android.gms.common.api.ApiException
+import com.google.android.gms.common.api.Scope
 import com.shabana.filekhoj.data.ScheduledBackupWorker
 import com.shabana.filekhoj.data.DocumentEntity
 import com.shabana.filekhoj.data.DocumentRepository
@@ -122,6 +127,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var exportFolderLauncher: ActivityResultLauncher<Uri?>
     private lateinit var backupExportLauncher: ActivityResultLauncher<String>
     private lateinit var backupRestoreLauncher: ActivityResultLauncher<Array<String>>
+    private lateinit var driveSignInLauncher: ActivityResultLauncher<Intent>
     private var pendingBackupFile: File? = null
     private var pendingPdfExportFile: File? = null
     private var pendingBulkExportDocuments: List<DocumentEntity> = emptyList()
@@ -131,11 +137,28 @@ class MainActivity : ComponentActivity() {
     private val searchHistory = mutableStateOf<List<String>>(emptyList())
     private val passwordQueue = mutableStateOf<List<Uri>>(emptyList())
     private val passwordError = mutableStateOf<String?>(null)
+    private val driveAccount = mutableStateOf<String?>(null)
     private val prefs by lazy { getSharedPreferences("filekhoj_preferences", Context.MODE_PRIVATE) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         repository = DocumentRepository(applicationContext)
+        driveAccount.value = GoogleDriveBackupManager(applicationContext).signedInEmail()
+        driveSignInLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            if (result.resultCode == RESULT_OK) {
+                try {
+                    val account = GoogleSignIn.getSignedInAccountFromIntent(result.data)
+                        .getResult(ApiException::class.java)
+                    driveAccount.value = account.email
+                    importStatus.value = "Google Drive connected${account.email?.let { ": $it" }.orEmpty()}."
+                } catch (error: Exception) {
+                    driveAccount.value = null
+                    importStatus.value = "Google Drive sign-in failed: ${error.message ?: error.javaClass.simpleName}"
+                }
+            } else {
+                importStatus.value = "Google Drive sign-in cancelled."
+            }
+        }
         val savedBackupInterval = getSharedPreferences(ScheduledBackupWorker.PREFS, Context.MODE_PRIVATE).getLong(ScheduledBackupWorker.KEY_INTERVAL_DAYS, 0L).toInt()
         if (savedBackupInterval in setOf(1, 7, 30)) {
             ScheduledBackupWorker.schedule(applicationContext, savedBackupInterval)
@@ -356,6 +379,10 @@ class MainActivity : ComponentActivity() {
                 repository = repository,
                 statusMessage = importStatus.value,
                 searchHistory = searchHistory.value,
+                driveAccount = driveAccount.value,
+                onDriveConnect = ::connectGoogleDrive,
+                onDriveBackup = ::backupToGoogleDrive,
+                onDriveRestore = ::restoreFromGoogleDrive,
                 passwordRequest = passwordQueue.value.firstOrNull(),
                 passwordError = passwordError.value,
                 onPasswordSubmit = { uri, password ->
@@ -418,6 +445,53 @@ class MainActivity : ComponentActivity() {
                 },
                 onStatus = { importStatus.value = it }
             )
+        }
+    }
+
+    private fun connectGoogleDrive() {
+        val options = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
+            .requestEmail()
+            .requestScopes(Scope(GoogleDriveBackupManager.DRIVE_FILE_SCOPE))
+            .build()
+        driveSignInLauncher.launch(GoogleSignIn.getClient(this, options).signInIntent)
+    }
+
+    private fun backupToGoogleDrive() {
+        lifecycleScope.launch {
+            val temp = File(cacheDir, "filekhoj-drive-backup-${System.currentTimeMillis()}.zip")
+            try {
+                importStatus.value = "Preparing Google Drive backup…"
+                withContext(Dispatchers.IO) { BackupRestoreManager(applicationContext).createBackup(temp) }
+                importStatus.value = "Uploading backup to Google Drive…"
+                val fileId = withContext(Dispatchers.IO) {
+                    GoogleDriveBackupManager(applicationContext).uploadLatestBackup(temp)
+                }
+                importStatus.value = "Google Drive backup completed successfully."
+                Log.i("ShabanaFileKhoj", "Drive backup uploaded: $fileId")
+            } catch (error: Exception) {
+                Log.e("ShabanaFileKhoj", "Google Drive backup failed", error)
+                importStatus.value = "Google Drive backup failed: ${error.message ?: error.javaClass.simpleName}"
+            } finally { temp.delete() }
+        }
+    }
+
+    private fun restoreFromGoogleDrive() {
+        lifecycleScope.launch {
+            val temp = File(cacheDir, "filekhoj-drive-restore-${System.currentTimeMillis()}.zip")
+            try {
+                importStatus.value = "Downloading backup from Google Drive…"
+                withContext(Dispatchers.IO) {
+                    GoogleDriveBackupManager(applicationContext).downloadLatestBackup(temp)
+                }
+                importStatus.value = "Validating backup from Google Drive…"
+                val result = withContext(Dispatchers.IO) {
+                    BackupRestoreManager(applicationContext).restoreBackup(temp)
+                }
+                importStatus.value = "Google Drive restore complete: ${result.restored} restored, ${result.skipped} skipped."
+            } catch (error: Exception) {
+                Log.e("ShabanaFileKhoj", "Google Drive restore failed", error)
+                importStatus.value = "Google Drive restore failed: ${error.message ?: error.javaClass.simpleName}. Existing library entries were kept."
+            } finally { temp.delete() }
         }
     }
 
@@ -537,6 +611,10 @@ private fun FileKhojApp(
     onImportClick: () -> Unit,
     onOpenDocument: (DocumentEntity) -> Unit,
     onPdfSaveRequest: (File, String, (Boolean, String?) -> Unit) -> Unit,
+    driveAccount: String?,
+    onDriveConnect: () -> Unit,
+    onDriveBackup: () -> Unit,
+    onDriveRestore: () -> Unit,
     onBackupClick: () -> Unit,
     onRestoreClick: () -> Unit,
     onBackupSchedule: (Int?) -> Unit,
@@ -1457,6 +1535,10 @@ private fun FileKhojApp(
         }
         val status = statusMessage.orEmpty()
         val operationInProgress = status.startsWith("Preparing document backup") ||
+            status.startsWith("Preparing Google Drive backup") ||
+            status.startsWith("Uploading backup to Google Drive") ||
+            status.startsWith("Downloading backup from Google Drive") ||
+            status.startsWith("Validating backup from Google Drive") ||
             status.startsWith("Restoring backup") ||
             status.startsWith("Validating backup") ||
             status.startsWith("Choose a FileKhoj backup")
