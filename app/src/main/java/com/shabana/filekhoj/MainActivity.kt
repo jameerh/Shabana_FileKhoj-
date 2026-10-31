@@ -531,9 +531,6 @@ private fun FileKhojApp(
     onBackupClick: () -> Unit,
     onRestoreClick: () -> Unit,
     onBackupSchedule: (Int?) -> Unit,
-    onBackupClick: () -> Unit,
-    onRestoreClick: () -> Unit,
-    onBackupSchedule: (Int?) -> Unit,
     onSaveSelected: (List<DocumentEntity>) -> Unit,
     onStatus: (String) -> Unit
 ) {
@@ -582,7 +579,6 @@ private fun FileKhojApp(
     var activeProfile by remember { mutableStateOf(profilesStore.activeProfile()) }
     var showRegistration by remember { mutableStateOf(activeProfile == null) }
     var showProfile by remember { mutableStateOf(false) }
-    var showBackupDialog by remember { mutableStateOf(false) }
     var showBackupDialog by remember { mutableStateOf(false) }
     var showAdmin by remember { mutableStateOf(false) }
     var showAdminContact by remember { mutableStateOf(false) }
@@ -740,10 +736,6 @@ private fun FileKhojApp(
                     NavigationDrawerItem(label = { Text("＋  Import documents") }, selected = false, onClick = {
                         scope.launch { drawerState.close() }
                         onImportClick()
-                    })
-                    NavigationDrawerItem(label = { Text("☁  Backup & Restore") }, selected = false, onClick = {
-                        showBackupDialog = true
-                        scope.launch { drawerState.close() }
                     })
                     NavigationDrawerItem(label = { Text("☁  Backup & Restore") }, selected = false, onClick = {
                         showBackupDialog = true
