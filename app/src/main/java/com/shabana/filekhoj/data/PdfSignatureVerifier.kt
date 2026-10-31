@@ -6,10 +6,10 @@ import org.bouncycastle.asn1.ASN1InputStream
 import org.bouncycastle.cms.CMSProcessableByteArray
 import org.bouncycastle.cms.CMSSignedData
 import org.bouncycastle.cms.jcajce.JcaSimpleSignerInfoVerifierBuilder
+import org.bouncycastle.cert.X509CertificateHolder
 import org.bouncycastle.cert.jcajce.JcaX509CertificateConverter
 import java.io.ByteArrayInputStream
 import java.io.File
-import javax.security.auth.x500.X500Principal
 import java.security.KeyStore
 import java.security.cert.CertPathBuilder
 import java.security.cert.CertStore
@@ -98,10 +98,12 @@ class PdfSignatureVerifier {
                 byteRange[3] < 0 ||
                 byteRange[2].toLong() + byteRange[3].toLong() > pdfBytes.size.toLong()
             ) return DocumentEntity.SIGNATURE_STATUS_INVALID
-            // A trailing revision means the file changed after this signature was made.
-            // Still verify the exact signed byte ranges; report modification separately
-            // instead of skipping cryptographic verification altogether.
-            val modifiedAfterSigning = byteRange[2].toLong() + byteRange[3].toLong() < pdfBytes.size.toLong()
+
+            // Validate the CMS signature over the exact bytes covered by ByteRange.
+            // If a later incremental revision exists, report that separately after
+            // the original signature has actually been cryptographically verified.
+            val modifiedAfterSigning =
+                byteRange[2].toLong() + byteRange[3].toLong() < pdfBytes.size.toLong()
 
             val signedContent = signature.getSignedContent(pdfBytes)
             val paddedContents = signature.getContents(pdfBytes)
@@ -113,25 +115,30 @@ class PdfSignatureVerifier {
             val signers = cms.signerInfos.signers
             if (signers.isEmpty()) return DocumentEntity.SIGNATURE_STATUS_INVALID
 
-            val certificates = cms.certificates
-            val allCertificates = certificates.getMatches(null).map {
-                JcaX509CertificateConverter().getCertificate(it)
+            val certificateStore = cms.certificates
+            val allCertificateHolders = certificateStore.getMatches(null).toList()
+            val allCertificates = allCertificateHolders.map { holder ->
+                JcaX509CertificateConverter().getCertificate(holder)
             }
+
             var untrusted = false
             var expired = false
             for (signer in signers) {
-                val signerId = signer.sid
-                val issuerName = signerId.issuer?.toString()
-                val certificate = allCertificates.firstOrNull { candidate ->
-                    candidate.serialNumber == signerId.serialNumber &&
-                        issuerName != null &&
-                        candidate.issuerX500Principal == X500Principal(issuerName)
-                } ?: return DocumentEntity.SIGNATURE_STATUS_INCOMPLETE
+                // Match the SignerIdentifier using Bouncy Castle's CMS selector.
+                // Converting issuer names to strings and comparing X500Principal text
+                // is fragile across equivalent distinguished-name encodings and was
+                // causing valid signers to be reported as incomplete.
+                val signerCertificateHolder = certificateStore.getMatches(signer.sid)
+                    .firstOrNull()
+                    ?: return DocumentEntity.SIGNATURE_STATUS_INCOMPLETE
+                val certificate = JcaX509CertificateConverter()
+                    .getCertificate(signerCertificateHolder as X509CertificateHolder)
 
                 val cryptographicallyValid = signer.verify(
                     JcaSimpleSignerInfoVerifierBuilder().build(certificate)
                 )
                 if (!cryptographicallyValid) return DocumentEntity.SIGNATURE_STATUS_INVALID
+
                 try {
                     certificate.checkValidity(Date())
                 } catch (_: java.security.cert.CertificateExpiredException) {
