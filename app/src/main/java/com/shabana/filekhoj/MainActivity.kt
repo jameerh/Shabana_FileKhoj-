@@ -531,6 +531,9 @@ private fun FileKhojApp(
     onBackupClick: () -> Unit,
     onRestoreClick: () -> Unit,
     onBackupSchedule: (Int?) -> Unit,
+    onBackupClick: () -> Unit,
+    onRestoreClick: () -> Unit,
+    onBackupSchedule: (Int?) -> Unit,
     onSaveSelected: (List<DocumentEntity>) -> Unit,
     onStatus: (String) -> Unit
 ) {
@@ -579,6 +582,7 @@ private fun FileKhojApp(
     var activeProfile by remember { mutableStateOf(profilesStore.activeProfile()) }
     var showRegistration by remember { mutableStateOf(activeProfile == null) }
     var showProfile by remember { mutableStateOf(false) }
+    var showBackupDialog by remember { mutableStateOf(false) }
     var showBackupDialog by remember { mutableStateOf(false) }
     var showAdmin by remember { mutableStateOf(false) }
     var showAdminContact by remember { mutableStateOf(false) }
@@ -736,6 +740,10 @@ private fun FileKhojApp(
                     NavigationDrawerItem(label = { Text("＋  Import documents") }, selected = false, onClick = {
                         scope.launch { drawerState.close() }
                         onImportClick()
+                    })
+                    NavigationDrawerItem(label = { Text("☁  Backup & Restore") }, selected = false, onClick = {
+                        showBackupDialog = true
+                        scope.launch { drawerState.close() }
                     })
                     NavigationDrawerItem(label = { Text("☁  Backup & Restore") }, selected = false, onClick = {
                         showBackupDialog = true
@@ -1433,6 +1441,35 @@ private fun FileKhojApp(
                     TextButton(onClick = { showFiltersDialog = false }) { Text("Cancel") }
                 }
             }
+        )
+    }
+
+    if (showBackupDialog) {
+        var selectedInterval by remember { mutableStateOf(7) }
+        AlertDialog(
+            onDismissRequest = { showBackupDialog = false },
+            title = { Text("Backup & Restore") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("Create a portable ZIP containing imported document bytes and library metadata.")
+                    Text("Automatic local backup interval")
+                    listOf(1 to "Every day", 7 to "Every 7 days", 30 to "Every month").forEach { (days, label) ->
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            androidx.compose.material3.RadioButton(selected = selectedInterval == days, onClick = { selectedInterval = days })
+                            Text(label)
+                        }
+                    }
+                    Text("Scheduled backups are kept privately on this phone. Google Drive linking is not active yet.", style = MaterialTheme.typography.bodySmall)
+                }
+            },
+            confirmButton = {
+                Column(horizontalAlignment = Alignment.End) {
+                    TextButton(onClick = { onBackupSchedule(selectedInterval); showBackupDialog = false }) { Text("Save schedule") }
+                    TextButton(onClick = { showBackupDialog = false; onBackupClick() }) { Text("Back up now / Export ZIP") }
+                    TextButton(onClick = { showBackupDialog = false; onRestoreClick() }) { Text("Restore from ZIP") }
+                }
+            },
+            dismissButton = { TextButton(onClick = { onBackupSchedule(null); showBackupDialog = false }) { Text("Disable schedule") } }
         )
     }
 
