@@ -453,7 +453,18 @@ class MainActivity : ComponentActivity() {
             .requestEmail()
             .requestScopes(Scope(GoogleDriveBackupManager.DRIVE_FILE_SCOPE))
             .build()
-        driveSignInLauncher.launch(GoogleSignIn.getClient(this, options).signInIntent)
+
+        // Show immediate feedback inside the open Backup & Restore dialog. Previously,
+        // status was only visible on the screen behind that dialog, making failed sign-in
+        // look like the Connect button had done nothing.
+        importStatus.value = "Opening Google account picker…"
+        try {
+            driveSignInLauncher.launch(GoogleSignIn.getClient(this, options).signInIntent)
+        } catch (error: Exception) {
+            Log.e("ShabanaFileKhoj", "Could not launch Google Drive sign-in", error)
+            importStatus.value =
+                "Could not open Google sign-in: ${error.message ?: error.javaClass.simpleName}"
+        }
     }
 
     private fun backupToGoogleDrive() {
@@ -1622,6 +1633,25 @@ private fun FileKhojApp(
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
+                            // Keep Drive sign-in and operation feedback visible while this dialog
+                            // is open; the home-screen status card is covered by the dialog.
+                            if (
+                                status.startsWith("Opening Google account") ||
+                                status.startsWith("Could not open Google sign-in") ||
+                                status.startsWith("Google Drive") ||
+                                status.startsWith("Google account")
+                            ) {
+                                Text(
+                                    status,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = if (
+                                        status.contains("failed", ignoreCase = true) ||
+                                        status.contains("could not", ignoreCase = true) ||
+                                        status.contains("error", ignoreCase = true)
+                                    ) MaterialTheme.colorScheme.error
+                                    else MaterialTheme.colorScheme.primary
+                                )
+                            }
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.spacedBy(12.dp)
