@@ -28,6 +28,19 @@ For a multi-device rollout, configure the central admin's WhatsApp number on eac
 
 This local profile feature is not server-backed identity authentication, device-to-device account sync, OTP verification or a central admin portal. Do not treat a local Admin role as a secure organization-wide administrator account.
 
+## Google Drive backup setup
+
+FileKhoj keeps its document library local by default. Optional cloud backup uses the Google account selected in **Backup & Restore** and uploads only the generated FileKhoj ZIP archive to the app-owned `ShabanaFileKhoj_Backups` Drive folder.
+
+Before testing Google Drive on a device:
+
+1. In the Google Cloud project, enable the **Google Drive API** and configure the OAuth consent screen.
+2. Create an **Android OAuth client** using application ID `in.shabana.filekhoj` and the SHA-1 certificate fingerprint used to sign the installed APK (debug and release certificates have different fingerprints).
+3. Make sure the Google account used for testing is allowed by the OAuth consent-screen publishing/test-user configuration.
+4. Install the APK, open **Backup & Restore**, connect the Google account, then use **Backup to Drive** or **Restore latest from Drive**.
+
+The app requests only the `drive.file` scope. It creates and accesses its own backup folder and latest ZIP rather than requesting broad access to the user's entire Drive. Cloud backup requires network access; local document import, search and ZIP export remain available offline. Scheduled backups currently remain local-only.
+
 ## Toolchain baseline
 
 - Gradle 8.13
