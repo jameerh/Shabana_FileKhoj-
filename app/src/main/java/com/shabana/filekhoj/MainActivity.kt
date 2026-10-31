@@ -1450,7 +1450,10 @@ private fun FileKhojApp(
             context.getSharedPreferences(ScheduledBackupWorker.PREFS, Context.MODE_PRIVATE)
         }
         var selectedInterval by remember {
-            mutableStateOf(backupPrefs.getLong(ScheduledBackupWorker.KEY_INTERVAL_DAYS, 7L).toInt().takeIf { it in setOf(1, 7, 30) } ?: 7)
+            mutableStateOf(
+                backupPrefs.getLong(ScheduledBackupWorker.KEY_INTERVAL_DAYS, 7L)
+                    .toInt().takeIf { it in setOf(1, 7, 30) } ?: 7
+            )
         }
         val status = statusMessage.orEmpty()
         val operationInProgress = status.startsWith("Preparing document backup") ||
@@ -1459,51 +1462,165 @@ private fun FileKhojApp(
             status.startsWith("Choose a FileKhoj backup")
         AlertDialog(
             onDismissRequest = { if (!operationInProgress) showBackupDialog = false },
-            title = { Text("Backup & Restore") },
+            title = {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text("Backup & Restore", style = MaterialTheme.typography.titleLarge)
+                    TextButton(
+                        enabled = !operationInProgress,
+                        onClick = { showBackupDialog = false },
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+                    ) { Text("Close") }
+                }
+            },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Create a portable ZIP containing imported document bytes and library metadata.")
-                    Text("Automatic local backup interval", style = MaterialTheme.typography.labelLarge)
-                    listOf(1 to "Every day", 7 to "Every 7 days", 30 to "Every month").forEach { (days, label) ->
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            androidx.compose.material3.RadioButton(
-                                selected = selectedInterval == days,
-                                enabled = !operationInProgress,
-                                onClick = { selectedInterval = days }
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 360.dp)
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Text(
+                        "Protect your imported documents and library details.",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Text("Automatic local backup", style = MaterialTheme.typography.titleSmall)
+                            listOf(1 to "Daily", 7 to "Every 7 days", 30 to "Monthly").forEach { (days, label) ->
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable(enabled = !operationInProgress) { selectedInterval = days }
+                                        .padding(vertical = 1.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    androidx.compose.material3.RadioButton(
+                                        selected = selectedInterval == days,
+                                        enabled = !operationInProgress,
+                                        onClick = { selectedInterval = days }
+                                    )
+                                    Text(label, style = MaterialTheme.typography.bodyMedium)
+                                }
+                            }
+                            Text(
+                                "Saved backups stay on this phone. Android may delay background work.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
-                            Text(label)
                         }
                     }
-                    Text("Scheduled backups are stored on this phone. Google Drive upload is not connected yet.", style = MaterialTheme.typography.bodySmall)
+
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text("Google Drive / ZIP", style = MaterialTheme.typography.titleSmall)
+                            Text(
+                                "Export opens Android's save picker; choose Google Drive if it is available. Restore can also browse Drive files. Automatic cloud upload still requires Drive sign-in configuration.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                androidx.compose.material3.OutlinedButton(
+                                    modifier = Modifier.weight(1f),
+                                    enabled = !operationInProgress,
+                                    onClick = onBackupClick,
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp)
+                                ) {
+                                    Text("Export backup", style = MaterialTheme.typography.labelMedium)
+                                }
+                                androidx.compose.material3.OutlinedButton(
+                                    modifier = Modifier.weight(1f),
+                                    enabled = !operationInProgress,
+                                    onClick = onRestoreClick,
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp)
+                                ) {
+                                    Text("Restore backup", style = MaterialTheme.typography.labelMedium)
+                                }
+                            }
+                        }
+                    }
+
                     if (operationInProgress) {
-                        androidx.compose.material3.LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                        androidx.compose.material3.LinearProgressIndicator(
+                            modifier = Modifier.fillMaxWidth()
+                        )
                     }
                     if (status.isNotBlank()) {
                         Surface(
-                            color = if (status.contains("failed", ignoreCase = true) || status.contains("could not", ignoreCase = true))
-                                MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.secondaryContainer,
+                            modifier = Modifier.fillMaxWidth(),
+                            color = if (
+                                status.contains("failed", ignoreCase = true) ||
+                                status.contains("could not", ignoreCase = true)
+                            ) MaterialTheme.colorScheme.errorContainer
+                            else MaterialTheme.colorScheme.secondaryContainer,
                             shape = RoundedCornerShape(10.dp)
                         ) {
-                            Text(status, modifier = Modifier.fillMaxWidth().padding(10.dp), style = MaterialTheme.typography.bodySmall)
+                            Text(
+                                status,
+                                modifier = Modifier.padding(10.dp),
+                                style = MaterialTheme.typography.bodySmall
+                            )
                         }
                     }
                     val lastBackup = backupPrefs.getLong(ScheduledBackupWorker.KEY_LAST_SUCCESS, 0L)
-                    if (lastBackup > 0L) Text(
-                        "Last automatic local backup: ${DateFormat.getDateTimeInstance().format(Date(lastBackup))}",
-                        style = MaterialTheme.typography.bodySmall
-                    )
+                    if (lastBackup > 0L) {
+                        Text(
+                            "Last automatic local backup: ${DateFormat.getDateTimeInstance().format(Date(lastBackup))}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 }
             },
             confirmButton = {
-                Column(horizontalAlignment = Alignment.End) {
-                    TextButton(enabled = !operationInProgress, onClick = { onBackupSchedule(selectedInterval) }) { Text("Save schedule") }
-                    TextButton(enabled = !operationInProgress, onClick = onBackupClick) { Text("Back up now / Export ZIP") }
-                    TextButton(enabled = !operationInProgress, onClick = onRestoreClick) { Text("Restore from ZIP") }
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Button(
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = !operationInProgress,
+                        onClick = { onBackupSchedule(selectedInterval) }
+                    ) {
+                        Text("Save schedule")
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        TextButton(
+                            enabled = !operationInProgress,
+                            onClick = { onBackupSchedule(null) }
+                        ) { Text("Disable schedule") }
+                        TextButton(
+                            enabled = !operationInProgress,
+                            onClick = { showBackupDialog = false }
+                        ) { Text("Close") }
+                    }
                 }
             },
-            dismissButton = {
-                TextButton(enabled = !operationInProgress, onClick = { onBackupSchedule(null) }) { Text("Disable schedule") }
-            }
+            dismissButton = null
         )
     }
 
