@@ -241,9 +241,6 @@ class PdfSignatureVerifier {
             // only a window that verifies cryptographically against the exact
             // ByteRange bytes. Never mark a signature valid merely because its
             // payload length looks plausible.
-            val verifier = Signature.getInstance("SHA1withRSA")
-            verifier.initVerify(signerCertificate.publicKey)
-            verifier.update(signedContent)
             val rawSignature = (0..(signatureContents.size - rsaSignatureLength))
                 .asSequence()
                 .map { offset -> signatureContents.copyOfRange(offset, offset + rsaSignatureLength) }
