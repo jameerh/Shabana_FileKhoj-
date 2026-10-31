@@ -875,7 +875,6 @@ private fun FileKhojApp(
                                 }
                             }
                         }
-                    }
                     if (visibleSelectedIds.isNotEmpty()) {
                         item {
                             Card(
