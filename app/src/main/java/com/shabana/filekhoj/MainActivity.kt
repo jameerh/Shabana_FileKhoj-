@@ -1618,10 +1618,41 @@ private fun FileKhojApp(
                         ) {
                             Text("Google Drive / ZIP", style = MaterialTheme.typography.titleSmall)
                             Text(
-                                "Create a portable ZIP backup or restore an existing archive. Google Drive account sync is not connected in this build; Drive integration will be added separately.",
+                                driveAccount?.let { "Connected as $it" } ?: "Connect Google Drive to upload or restore your latest FileKhoj backup.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                androidx.compose.material3.OutlinedButton(
+                                    modifier = Modifier.weight(1f).heightIn(min = 48.dp),
+                                    enabled = !operationInProgress,
+                                    onClick = onDriveConnect,
+                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 12.dp)
+                                ) {
+                                    Text(if (driveAccount == null) "Connect Drive" else "Reconnect", style = MaterialTheme.typography.labelLarge)
+                                }
+                                Button(
+                                    modifier = Modifier.weight(1f).heightIn(min = 48.dp),
+                                    enabled = !operationInProgress && driveAccount != null,
+                                    onClick = onDriveBackup,
+                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 12.dp)
+                                ) {
+                                    Text("Backup to Drive", style = MaterialTheme.typography.labelLarge)
+                                }
+                            }
+                            Button(
+                                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                                enabled = !operationInProgress && driveAccount != null,
+                                onClick = onDriveRestore,
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 12.dp)
+                            ) {
+                                Text("Restore latest from Drive", style = MaterialTheme.typography.labelLarge)
+                            }
+                            androidx.compose.material3.HorizontalDivider()
+                            Text("Local ZIP backup", style = MaterialTheme.typography.labelMedium)
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.spacedBy(12.dp)
