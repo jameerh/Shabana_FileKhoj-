@@ -2,6 +2,7 @@ package com.shabana.filekhoj
 
 import android.content.ActivityNotFoundException
 import android.content.Context
+import android.content.ClipData
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -9,6 +10,8 @@ import android.graphics.pdf.PdfRenderer
 import android.net.Uri
 import android.os.Bundle
 import android.os.ParcelFileDescriptor
+import android.provider.DocumentsContract
+import android.provider.OpenableColumns
 import android.widget.Toast
 import android.util.Log
 import androidx.activity.ComponentActivity
@@ -109,7 +112,9 @@ private enum class PreviewMode(val label: String) {
 class MainActivity : ComponentActivity() {
     private lateinit var documentPicker: ActivityResultLauncher<Array<String>>
     private lateinit var pdfExportLauncher: ActivityResultLauncher<String>
+    private lateinit var exportFolderLauncher: ActivityResultLauncher<Uri?>
     private var pendingPdfExportFile: File? = null
+    private var pendingBulkExportDocuments: List<DocumentEntity> = emptyList()
     private var pendingPdfExportCompletion: ((Boolean, String?) -> Unit)? = null
     private lateinit var repository: DocumentRepository
     private val importStatus = mutableStateOf<String?>(null)
@@ -123,6 +128,62 @@ class MainActivity : ComponentActivity() {
         repository = DocumentRepository(applicationContext)
         searchHistory.value = prefs.getString("recent_searches", "")
             .orEmpty().split("\n").filter(String::isNotBlank).take(3)
+
+        exportFolderLauncher = registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { treeUri ->
+            val selected = pendingBulkExportDocuments
+            pendingBulkExportDocuments = emptyList()
+            if (treeUri == null || selected.isEmpty()) {
+                if (treeUri == null) importStatus.value = "Folder selection cancelled. No files were changed."
+                return@registerForActivityResult
+            }
+            try {
+                contentResolver.takePersistableUriPermission(
+                    treeUri, Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                )
+            } catch (_: SecurityException) { /* Some providers grant temporary access only. */ }
+            lifecycleScope.launch {
+                var copied = 0
+                val failures = mutableListOf<String>()
+                selected.forEach { document ->
+                    try {
+                        withContext(Dispatchers.IO) {
+                            val rootId = DocumentsContract.getTreeDocumentId(treeUri)
+                            val rootUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, rootId)
+                            val destination = DocumentsContract.createDocument(
+                                contentResolver, rootUri, document.mimeType.ifBlank { "application/octet-stream" },
+                                uniqueExportName(treeUri, document.displayName)
+                            ) ?: throw IllegalStateException("Destination provider refused to create the file")
+                            val input = if (document.isStoredDecrypted) {
+                                val file = document.managedPath?.let(::File)
+                                    ?: throw IllegalStateException("Private unlocked copy is missing")
+                                if (!file.isFile) throw IllegalStateException("Private unlocked copy is missing")
+                                file.inputStream()
+                            } else {
+                                contentResolver.openInputStream(Uri.parse(document.sourceUri))
+                                    ?: throw IllegalStateException("Source file is no longer accessible")
+                            }
+                            try {
+                                val output = contentResolver.openOutputStream(destination, "w")
+                                    ?: throw IllegalStateException("Could not open destination file")
+                                input.use { source -> output.use { target -> source.copyTo(target) } }
+                            } catch (error: Exception) {
+                                try { DocumentsContract.deleteDocument(contentResolver, destination) } catch (_: Exception) { }
+                                throw error
+                            }
+                        }
+                        copied++
+                    } catch (error: Exception) {
+                        failures += "${document.displayName}: ${error.message ?: error.javaClass.simpleName}"
+                    }
+                }
+                val message = buildString {
+                    append("Saved $copied of ${selected.size} selected file(s) to the chosen folder.")
+                    if (failures.isNotEmpty()) append(" Failed: ${failures.take(3).joinToString("; ")}")
+                }
+                importStatus.value = message
+                Toast.makeText(this@MainActivity, message, Toast.LENGTH_LONG).show()
+            }
+        }
 
         documentPicker = registerForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { selectedUris ->
             if (selectedUris.isNullOrEmpty()) return@registerForActivityResult
@@ -281,6 +342,17 @@ class MainActivity : ComponentActivity() {
                 },
                 onOpenDocument = ::openDocument,
                 onPdfSaveRequest = ::launchPdfExport,
+                onSaveSelected = { selected ->
+                    if (selected.isEmpty()) importStatus.value = "Select at least one file to save."
+                    else {
+                        pendingBulkExportDocuments = selected
+                        try { exportFolderLauncher.launch(null) }
+                        catch (error: Exception) {
+                            pendingBulkExportDocuments = emptyList()
+                            importStatus.value = "Could not open folder picker: ${error.message ?: error.javaClass.simpleName}"
+                        }
+                    }
+                },
                 onStatus = { importStatus.value = it }
             )
         }
@@ -316,6 +388,25 @@ class MainActivity : ComponentActivity() {
             onComplete(false, message)
             Toast.makeText(this, message, Toast.LENGTH_LONG).show()
         }
+    }
+
+    private fun uniqueExportName(treeUri: Uri, requestedName: String): String {
+        val safeName = requestedName.trim().ifBlank { "FileKhoj document" }
+        val rootId = DocumentsContract.getTreeDocumentId(treeUri)
+        val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, rootId)
+        val existing = mutableSetOf<String>()
+        contentResolver.query(childrenUri, arrayOf(DocumentsContract.Document.COLUMN_DISPLAY_NAME), null, null, null)
+            ?.use { cursor ->
+                val index = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
+                if (index >= 0) while (cursor.moveToNext()) cursor.getString(index)?.let(existing::add)
+            }
+        if (safeName !in existing) return safeName
+        val dot = safeName.lastIndexOf('.')
+        val base = if (dot > 0) safeName.substring(0, dot) else safeName
+        val extension = if (dot > 0) safeName.substring(dot) else ""
+        var suffix = 2
+        while ("$base (FileKhoj $suffix)$extension" in existing) suffix++
+        return "$base (FileKhoj $suffix)$extension"
     }
 
     private fun saveSearch(raw: String) {
@@ -366,6 +457,7 @@ private fun FileKhojApp(
     onImportClick: () -> Unit,
     onOpenDocument: (DocumentEntity) -> Unit,
     onPdfSaveRequest: (File, (Boolean, String?) -> Unit) -> Unit,
+    onSaveSelected: (List<DocumentEntity>) -> Unit,
     onStatus: (String) -> Unit
 ) {
     var query by remember { mutableStateOf("") }
@@ -390,6 +482,7 @@ private fun FileKhojApp(
     var categoryMenu by remember { mutableStateOf(false) }
     var viewMenu by remember { mutableStateOf(false) }
     var showDeleteConfirmation by remember { mutableStateOf(false) }
+    var showBrandHero by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
     val profilesStore = remember(context) { UserRegistrationStore(context) }
@@ -589,6 +682,10 @@ private fun FileKhojApp(
                         Text("तुमचे दस्तऐवज. तुमच्याच मोबाईलमध्ये.",
                             style = MaterialTheme.typography.labelSmall, color = Color(0xFF64756C))
                     }
+                    IconButton(onClick = { showBrandHero = !showBrandHero }) {
+                        Text(if (showBrandHero) "⌃" else "⌄", fontSize = 22.sp,
+                            color = Color(0xFF07583D), fontWeight = FontWeight.Bold)
+                    }
                     IconButton(onClick = { showProfile = true }) {
                         Text(activeProfile?.name?.firstOrNull()?.uppercaseChar()?.toString() ?: "♙",
                             fontSize = 22.sp, color = Color(0xFF07583D), fontWeight = FontWeight.Bold)
@@ -600,27 +697,28 @@ private fun FileKhojApp(
                     contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 26.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    item {
-                        Card(
-                            modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(26.dp),
-                            colors = CardDefaults.cardColors(containerColor = Color(0xFF064B33))
-                        ) {
-                            Row(Modifier.fillMaxWidth().padding(18.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                                    Text("शबाना", color = Color(0xFFFFD76B), fontWeight = FontWeight.Bold)
-                                    Text("FileKhoj", color = Color.White, fontSize = 32.sp,
-                                        fontWeight = FontWeight.ExtraBold)
-                                    Text("तुमचे सर्व दस्तऐवज,\nशोधा क्षणार्धात!",
-                                        color = Color.White, fontSize = 18.sp, lineHeight = 24.sp,
-                                        fontWeight = FontWeight.Bold)
-                                    Text("Save once. Search anything. Find instantly.",
-                                        color = Color(0xFFD8EBDD), style = MaterialTheme.typography.bodySmall)
-                                    Text("PDF  •  फोटो  •  कागदपत्रे  •  OCR शोध",
-                                        color = Color(0xFFFFD76B), style = MaterialTheme.typography.labelMedium)
-                                }
-                                Box(Modifier.size(74.dp).clip(CircleShape).background(Color(0xFF0B6847)),
-                                    contentAlignment = Alignment.Center) {
-                                    Text("⌕", color = Color(0xFFFFD76B), fontSize = 58.sp)
+                    if (showBrandHero) {
+                        item {
+                            Card(
+                                modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(22.dp),
+                                colors = CardDefaults.cardColors(containerColor = Color(0xFF064B33))
+                            ) {
+                                Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        Text("शबाना FileKhoj", color = Color(0xFFFFD76B),
+                                            style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold)
+                                        Text("तुमचे सर्व दस्तऐवज, शोधा क्षणार्धात!",
+                                            color = Color.White, style = MaterialTheme.typography.titleMedium,
+                                            fontWeight = FontWeight.Bold)
+                                        Text("Save once. Search anything. Find instantly.",
+                                            color = Color(0xFFD8EBDD), style = MaterialTheme.typography.bodySmall)
+                                        Text("PDF • फोटो • कागदपत्रे • OCR शोध",
+                                            color = Color(0xFFFFD76B), style = MaterialTheme.typography.labelMedium)
+                                    }
+                                    Box(Modifier.size(52.dp).clip(CircleShape).background(Color(0xFF0B6847)),
+                                        contentAlignment = Alignment.Center) {
+                                        Text("⌕", color = Color(0xFFFFD76B), fontSize = 40.sp)
+                                    }
                                 }
                             }
                         }
@@ -770,7 +868,26 @@ private fun FileKhojApp(
                                     Text(if (allVisibleSelected) "Deselect visible" else "Select all visible",
                                         modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
                                     if (visibleSelectedIds.isNotEmpty()) {
-                                        Text("${visibleSelectedIds.size} selected", style = MaterialTheme.typography.labelSmall)
+                                        Spacer(Modifier.width(6.dp))
+                                        Text("${visibleSelectedIds.size} selected", style = MaterialTheme.typography.labelMedium,
+                                            color = Color(0xFF07583D), fontWeight = FontWeight.Bold)
+                                    }               }
+                                }
+                            }
+                        }
+                    }
+                    if (visibleSelectedIds.isNotEmpty()) {
+                        item {
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(16.dp),
+                                colors = CardDefaults.cardColors(containerColor = Color(0xFFEAF2EC))
+                            ) {
+                                Column(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp),
+                                    verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                        verticalAlignment = Alignment.CenterVertically) {
                                         TextButton(onClick = {
                                             val selectedDocuments = documents.filter { it.id in visibleSelectedIds }
                                             try {
@@ -778,25 +895,20 @@ private fun FileKhojApp(
                                                 selectedDocuments.forEach { document ->
                                                     val uri = if (document.isStoredDecrypted) {
                                                         val managedFile = document.managedPath?.let(::File)
-                                                        if (managedFile == null || !managedFile.isFile) {
+                                                        if (managedFile == null || !managedFile.isFile)
                                                             throw IllegalStateException("Unlocked copy missing: ${document.displayName}")
-                                                        }
-                                                        FileProvider.getUriForFile(
-                                                            context,
-                                                            "${context.packageName}.fileprovider",
-                                                            managedFile
-                                                        )
-                                                    } else {
-                                                        Uri.parse(document.sourceUri)
-                                                    }
+                                                        FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", managedFile)
+                                                    } else Uri.parse(document.sourceUri)
                                                     shareUris.add(uri)
                                                 }
-                                                if (shareUris.isEmpty()) {
-                                                    onStatus("Select at least one file to share.")
-                                                } else {
+                                                if (shareUris.isEmpty()) onStatus("Select at least one file to share.")
+                                                else {
                                                     val shareIntent = Intent(Intent.ACTION_SEND_MULTIPLE).apply {
                                                         type = "*/*"
                                                         putParcelableArrayListExtra(Intent.EXTRA_STREAM, shareUris)
+                                                        val clip = ClipData.newUri(context.contentResolver, "Selected files", shareUris.first())
+                                                        shareUris.drop(1).forEach { clip.addItem(ClipData.Item(it)) }
+                                                        clipData = clip
                                                         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                                                     }
                                                     context.startActivity(Intent.createChooser(shareIntent, "Share selected files"))
@@ -805,9 +917,31 @@ private fun FileKhojApp(
                                             } catch (error: Exception) {
                                                 onStatus("Could not share selected files: ${error.message ?: error.javaClass.simpleName}")
                                             }
-                                        }) { Text("Share") }
-                                        TextButton(onClick = { showDeleteConfirmation = true }) { Text("Remove") }
-                                        TextButton(onClick = { selectedIds = emptySet() }) { Text("Clear") }
+                                        }) { Text("↗ Share") }
+                                        TextButton(onClick = {
+                                            onSaveSelected(documents.filter { it.id in visibleSelectedIds })
+                                        }) { Text("⇩ Save to folder") }
+                                        TextButton(onClick = {
+                                            val selected = documents.filter { it.id in visibleSelectedIds }
+                                            scope.launch {
+                                                selected.forEach { repository.setFavourite(it.id, !it.isFavourite) }
+                                                onStatus("Updated favourites for ${selected.size} selected file(s).")
+                                            }
+                                        }) { Text("★ Favourite") }
+                                        TextButton(onClick = {
+                                            val selected = documents.filter { it.id in visibleSelectedIds }
+                                            if (selected.size == 1) {
+                                                editingDocument = selected.first()
+                                            } else {
+                                                onStatus("Select one file to edit its name or category.")
+                                            }
+                                        }) { Text("✎ Edit") }
+                                    }
+                                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                        verticalAlignment = Alignment.CenterVertically) {
+                                        TextButton(onClick = { showDeleteConfirmation = true }) { Text("− Remove") }
+                                        TextButton(onClick = { selectedIds = emptySet() }) { Text("× Clear selection") }
                                     }
                                 }
                             }
