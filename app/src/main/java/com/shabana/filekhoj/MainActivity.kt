@@ -1005,6 +1005,7 @@ private fun FileKhojApp(
                 }
             }
         }
+    }
 
     editingPdfDocument?.let { selectedPdf ->
         PdfEditorScreen(
