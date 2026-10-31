@@ -1267,7 +1267,7 @@ private fun DocumentRow(
                     DocumentEntity.SIGNATURE_STATUS_UNTRUSTED ->
                         "⚠ Signature found • signer certificate is not trusted"
                     DocumentEntity.SIGNATURE_STATUS_EXPIRED ->
-                        "⚠ Signature cryptographically valid • certificate is expired now; FileKhoj could not establish trusted signing time or certificate trust"
+                        "✓ Signature valid • signed bytes verified; certificate is expired now, and trusted signing time/certificate trust were not established"
                     DocumentEntity.SIGNATURE_STATUS_VALID_AT_SIGNING_TIME ->
                         "⚠ Signature cryptographically valid • certificate matched the PDF's claimed signing date; trusted timestamp and certificate trust not confirmed"
                     DocumentEntity.SIGNATURE_STATUS_INVALID ->
@@ -1294,7 +1294,8 @@ private fun DocumentRow(
                     text = signatureLabel,
                     style = MaterialTheme.typography.labelSmall,
                     color = signatureColor,
-                    fontWeight = if (document.signatureStatus == DocumentEntity.SIGNATURE_STATUS_VERIFIED)
+                    fontWeight = if (document.signatureStatus == DocumentEntity.SIGNATURE_STATUS_VERIFIED ||
+                        document.signatureStatus == DocumentEntity.SIGNATURE_STATUS_EXPIRED)
                         FontWeight.SemiBold else FontWeight.Normal
                 )
             }
