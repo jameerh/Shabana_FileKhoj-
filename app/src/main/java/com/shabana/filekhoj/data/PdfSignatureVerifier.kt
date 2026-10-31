@@ -235,21 +235,28 @@ class PdfSignatureVerifier {
             if (signatureContents.size < rsaSignatureLength) {
                 return DocumentEntity.SIGNATURE_STATUS_INCOMPLETE
             }
-            // Some legacy PDFs expose extra non-zero bytes in /Contents after
-            // the modulus-sized RSA value. Those bytes are not valid zero padding,
-            // but they also do not prove that the cryptographic signature is bad:
-            // do not truncate or label such a payload "invalid" without a known
-            // encoding rule. Report verification as incomplete until the format is
-            // understood, rather than guessing at a signature slice.
-            if (signatureContents.copyOfRange(rsaSignatureLength, signatureContents.size)
-                    .any { it != 0.toByte() }) {
-                return DocumentEntity.SIGNATURE_STATUS_INCOMPLETE
-            }
-            val rawSignature = signatureContents.copyOfRange(0, rsaSignatureLength)
+            // /Contents is normally exactly one modulus-sized RSA signature
+            // followed by zero padding. For legacy provider variants, try each
+            // possible modulus-sized window in the supplied payload, but accept
+            // only a window that verifies cryptographically against the exact
+            // ByteRange bytes. Never mark a signature valid merely because its
+            // payload length looks plausible.
             val verifier = Signature.getInstance("SHA1withRSA")
             verifier.initVerify(signerCertificate.publicKey)
             verifier.update(signedContent)
-            if (!verifier.verify(rawSignature)) return DocumentEntity.SIGNATURE_STATUS_INVALID
+            val rawSignature = (0..(signatureContents.size - rsaSignatureLength))
+                .asSequence()
+                .map { offset -> signatureContents.copyOfRange(offset, offset + rsaSignatureLength) }
+                .firstOrNull { candidate ->
+                    try {
+                        val candidateVerifier = Signature.getInstance("SHA1withRSA")
+                        candidateVerifier.initVerify(signerCertificate.publicKey)
+                        candidateVerifier.update(signedContent)
+                        candidateVerifier.verify(candidate)
+                    } catch (_: Exception) {
+                        false
+                    }
+                } ?: return DocumentEntity.SIGNATURE_STATUS_INVALID
 
             val expired = try {
                 signerCertificate.checkValidity(Date())
