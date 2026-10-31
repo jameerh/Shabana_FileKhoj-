@@ -381,6 +381,12 @@ class MainActivity : ComponentActivity() {
                     importStatus.value = "Password-protected PDF skipped. Original file was not changed."
                 },
                 onSearchSubmitted = ::saveSearch,
+                onBackupClick = ::createBackupAndExport,
+                onRestoreClick = { backupRestoreLauncher.launch(arrayOf("application/zip", "application/octet-stream")) },
+                onBackupSchedule = { days ->
+                    if (days == null) ScheduledBackupWorker.disable(applicationContext) else ScheduledBackupWorker.schedule(applicationContext, days)
+                    importStatus.value = if (days == null) "Automatic backup disabled." else "Automatic local backup scheduled every ${days} day(s)."
+                },
                 onImportClick = {
                     documentPicker.launch(arrayOf(
                         "application/pdf", "image/*", "text/plain",
@@ -403,6 +409,22 @@ class MainActivity : ComponentActivity() {
                 },
                 onStatus = { importStatus.value = it }
             )
+        }
+    }
+
+    private fun createBackupAndExport() {
+        lifecycleScope.launch {
+            val temp = File(cacheDir, "filekhoj-backup-${System.currentTimeMillis()}.zip")
+            try {
+                importStatus.value = "Preparing document backup…"
+                val result = withContext(Dispatchers.IO) { BackupRestoreManager(applicationContext).createBackup(temp) }
+                pendingBackupFile = temp
+                importStatus.value = "Prepared backup of ${result.documentCount} documents."
+                backupExportLauncher.launch("Shabana-FileKhoj-backup.zip")
+            } catch (error: Exception) {
+                temp.delete()
+                importStatus.value = "Backup failed: ${error.message ?: error.javaClass.simpleName}"
+            }
         }
     }
 
@@ -506,6 +528,9 @@ private fun FileKhojApp(
     onImportClick: () -> Unit,
     onOpenDocument: (DocumentEntity) -> Unit,
     onPdfSaveRequest: (File, String, (Boolean, String?) -> Unit) -> Unit,
+    onBackupClick: () -> Unit,
+    onRestoreClick: () -> Unit,
+    onBackupSchedule: (Int?) -> Unit,
     onSaveSelected: (List<DocumentEntity>) -> Unit,
     onStatus: (String) -> Unit
 ) {
@@ -554,6 +579,7 @@ private fun FileKhojApp(
     var activeProfile by remember { mutableStateOf(profilesStore.activeProfile()) }
     var showRegistration by remember { mutableStateOf(activeProfile == null) }
     var showProfile by remember { mutableStateOf(false) }
+    var showBackupDialog by remember { mutableStateOf(false) }
     var showAdmin by remember { mutableStateOf(false) }
     var showAdminContact by remember { mutableStateOf(false) }
     var adminNumberDraft by remember { mutableStateOf(profilesStore.adminWhatsappNumber()) }
@@ -710,6 +736,10 @@ private fun FileKhojApp(
                     NavigationDrawerItem(label = { Text("＋  Import documents") }, selected = false, onClick = {
                         scope.launch { drawerState.close() }
                         onImportClick()
+                    })
+                    NavigationDrawerItem(label = { Text("☁  Backup & Restore") }, selected = false, onClick = {
+                        showBackupDialog = true
+                        scope.launch { drawerState.close() }
                     })
                     NavigationDrawerItem(label = { Text("♙  Profile / Login") }, selected = false, onClick = {
                         showProfile = true
