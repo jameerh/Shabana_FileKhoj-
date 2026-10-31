@@ -79,6 +79,7 @@ class PdfSignatureVerifier {
                     return SignatureVerificationResult(DocumentEntity.SIGNATURE_STATUS_INVALID, signatures.size)
                 DocumentEntity.SIGNATURE_STATUS_UNTRUSTED -> sawUntrusted = true
                 DocumentEntity.SIGNATURE_STATUS_EXPIRED -> sawExpired = true
+                DocumentEntity.SIGNATURE_STATUS_VALID_AT_SIGNING_TIME -> sawExpired = true
                 DocumentEntity.SIGNATURE_STATUS_INCOMPLETE -> sawIncomplete = true
                 DocumentEntity.SIGNATURE_STATUS_MODIFIED_AFTER_SIGNING -> sawModifiedAfterSigning = true
             }
@@ -187,6 +188,8 @@ class PdfSignatureVerifier {
                 if (!hasTrustedPath(certificate, allCertificates)) untrusted = true
             }
             when {
+                expired && isValidAtClaimedSigningDate(certificate, signature) ->
+                    DocumentEntity.SIGNATURE_STATUS_VALID_AT_SIGNING_TIME
                 expired -> DocumentEntity.SIGNATURE_STATUS_EXPIRED
                 untrusted -> DocumentEntity.SIGNATURE_STATUS_UNTRUSTED
                 modifiedAfterSigning -> DocumentEntity.SIGNATURE_STATUS_MODIFIED_AFTER_SIGNING
@@ -265,6 +268,8 @@ class PdfSignatureVerifier {
             }
             val untrusted = !hasTrustedPath(signerCertificate, certificates)
             when {
+                expired && isValidAtClaimedSigningDate(signerCertificate, signature) ->
+                    DocumentEntity.SIGNATURE_STATUS_VALID_AT_SIGNING_TIME
                 expired -> DocumentEntity.SIGNATURE_STATUS_EXPIRED
                 untrusted -> DocumentEntity.SIGNATURE_STATUS_UNTRUSTED
                 modifiedAfterSigning -> DocumentEntity.SIGNATURE_STATUS_MODIFIED_AFTER_SIGNING
@@ -272,6 +277,24 @@ class PdfSignatureVerifier {
             }
         } catch (_: Exception) {
             DocumentEntity.SIGNATURE_STATUS_INCOMPLETE
+        }
+    }
+
+    /**
+     * The PDF /M signing date is supplied by the document and is not a trusted
+     * timestamp. This helper only supports a cautious informational status; it
+     * must never be presented as proof of trusted signing time or full trust.
+     */
+    private fun isValidAtClaimedSigningDate(
+        certificate: X509Certificate,
+        signature: PDSignature
+    ): Boolean {
+        val claimedDate = signature.signDate?.time ?: return false
+        return try {
+            certificate.checkValidity(claimedDate)
+            true
+        } catch (_: Exception) {
+            false
         }
     }
 
