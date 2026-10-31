@@ -459,7 +459,7 @@ private fun FileKhojApp(
     onSearchSubmitted: (String) -> Unit,
     onImportClick: () -> Unit,
     onOpenDocument: (DocumentEntity) -> Unit,
-    onPdfSaveRequest: (File, (Boolean, String?) -> Unit) -> Unit,
+    onPdfSaveRequest: (File, String, (Boolean, String?) -> Unit) -> Unit,
     onSaveSelected: (List<DocumentEntity>) -> Unit,
     onStatus: (String) -> Unit
 ) {
