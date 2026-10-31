@@ -38,6 +38,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -63,6 +64,7 @@ import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
@@ -461,6 +463,15 @@ private fun FileKhojApp(
     onStatus: (String) -> Unit
 ) {
     var query by remember { mutableStateOf("") }
+    var searchFocused by remember { mutableStateOf(false) }
+    var showImportMenu by remember { mutableStateOf(false) }
+    var showFiltersDialog by remember { mutableStateOf(false) }
+    var draftTypeFilter by remember { mutableStateOf(TypeFilter.ALL) }
+    var draftDateFilter by remember { mutableStateOf(DateFilter.ANY) }
+    var draftSignatureFilter by remember { mutableStateOf(SignatureFilter.ANY) }
+    var draftCategory by remember { mutableStateOf("All categories") }
+    var draftFavouritesOnly by remember { mutableStateOf(false) }
+    var draftPreviewMode by remember { mutableStateOf(PreviewMode.MEDIUM) }
     var documents by remember { mutableStateOf(emptyList<DocumentEntity>()) }
     var fullTextMatchIds by remember { mutableStateOf<Set<Long>>(emptySet()) }
     var fullTextMatchQuery by remember { mutableStateOf("") }
@@ -670,7 +681,7 @@ private fun FileKhojApp(
         ) {
             Column(Modifier.fillMaxSize().background(Color(0xFFF7F5EF))) {
                 Row(
-                    Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+                    Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 3.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     IconButton(onClick = { scope.launch { drawerState.open() } }) {
@@ -679,8 +690,6 @@ private fun FileKhojApp(
                     Column(Modifier.weight(1f)) {
                         Text("शबाना FileKhoj", style = MaterialTheme.typography.titleMedium,
                             color = Color(0xFF07583D), fontWeight = FontWeight.Bold)
-                        Text("तुमचे दस्तऐवज. तुमच्याच मोबाईलमध्ये.",
-                            style = MaterialTheme.typography.labelSmall, color = Color(0xFF64756C))
                     }
                     IconButton(onClick = { showBrandHero = !showBrandHero }) {
                         Text(if (showBrandHero) "⌃" else "⌄", fontSize = 22.sp,
@@ -692,10 +701,11 @@ private fun FileKhojApp(
                     }
                 }
 
+                Box(Modifier.weight(1f).fillMaxWidth()) {
                 LazyColumn(
                     Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 26.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                    contentPadding = PaddingValues(start = 10.dp, end = 10.dp, top = 2.dp, bottom = 88.dp),
+                    verticalArrangement = Arrangement.spacedBy(7.dp)
                 ) {
                     if (showBrandHero) {
                         item {
@@ -726,134 +736,91 @@ private fun FileKhojApp(
                     item {
                         Card(shape = RoundedCornerShape(22.dp),
                             colors = CardDefaults.cardColors(containerColor = Color.White)) {
-                            Column(Modifier.fillMaxWidth().padding(14.dp),
-                                verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                                Text("काय शोधायचे आहे?", style = MaterialTheme.typography.titleMedium,
+                            Column(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 7.dp),
+                                verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                Text("काय शोधायचे आहे?", style = MaterialTheme.typography.titleSmall,
                                     fontWeight = FontWeight.Bold, color = Color(0xFF183B2D))
                                 OutlinedTextField(
                                     value = query, onValueChange = { query = it },
-                                    modifier = Modifier.fillMaxWidth(),
+                                    modifier = Modifier.fillMaxWidth().onFocusChanged { searchFocused = it.isFocused },
                                     placeholder = { Text("नाव, क्रमांक किंवा PDF मधील शब्द शोधा…") },
                                     leadingIcon = { Text("⌕", fontSize = 24.sp) },
                                     trailingIcon = {
                                         if (query.isNotBlank()) TextButton(onClick = { query = "" }) { Text("Clear") }
                                     },
-                                    singleLine = true, shape = RoundedCornerShape(16.dp),
+                                    singleLine = true, shape = RoundedCornerShape(14.dp),
                                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                                     keyboardActions = KeyboardActions(onSearch = { onSearchSubmitted(query) })
                                 )
-                                Text("फाईलचे नाव आणि उपलब्ध indexed मजकूर — इंटरनेटशिवाय शोधा.",
-                                    style = MaterialTheme.typography.bodySmall, color = Color(0xFF66766D))
                             }
                         }
                     }
-                    if (searchHistory.isNotEmpty()) {
+                    if (searchHistory.isNotEmpty() && (searchFocused || query.isNotBlank())) {
                         item {
-                            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                Text("Recent searches", style = MaterialTheme.typography.labelLarge,
-                                    color = Color(0xFF4D6459), fontWeight = FontWeight.SemiBold)
-                                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    searchHistory.forEach { recent ->
-                                        FilterChip(selected = query.equals(recent, true),
-                                            onClick = { query = recent; onSearchSubmitted(recent) },
-                                            label = { Text(recent, maxLines = 1, overflow = TextOverflow.Ellipsis) })
+                            Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp),
+                                colors = CardDefaults.cardColors(containerColor = Color.White)) {
+                                Column(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 4.dp)) {
+                                    Text("Recent searches", style = MaterialTheme.typography.labelMedium,
+                                        color = Color(0xFF64756C), fontWeight = FontWeight.SemiBold)
+                                    searchHistory.take(3).forEach { recent ->
+                                        Row(Modifier.fillMaxWidth().clickable {
+                                            query = recent
+                                            searchFocused = false
+                                            onSearchSubmitted(recent)
+                                        }.padding(vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
+                                            Text("◷", color = Color(0xFF64756C), modifier = Modifier.padding(end = 8.dp))
+                                            Text(recent, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                                modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+                                        }
                                     }
                                 }
                             }
                         }
                     }
                     item {
-                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Text("Quick filters", style = MaterialTheme.typography.labelLarge,
-                                color = Color(0xFF4D6459), fontWeight = FontWeight.SemiBold)
-                            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                                horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-                                Box {
-                                    FilterChip(selected = typeFilter != TypeFilter.ALL,
-                                        onClick = { typeMenu = true }, label = { Text(typeFilter.label) })
-                                    DropdownMenu(typeMenu, onDismissRequest = { typeMenu = false }) {
-                                        TypeFilter.values().forEach { filter ->
-                                            DropdownMenuItem(text = { Text(filter.label) }, onClick = {
-                                                typeFilter = filter; typeMenu = false
-                                            })
-                                        }
-                                    }
-                                }
-                                Box {
-                                    FilterChip(selected = dateFilter != DateFilter.ANY,
-                                        onClick = { dateMenu = true }, label = { Text(dateFilter.label) })
-                                    DropdownMenu(dateMenu, onDismissRequest = { dateMenu = false }) {
-                                        DateFilter.values().forEach { filter ->
-                                            DropdownMenuItem(text = { Text(filter.label) }, onClick = {
-                                                dateFilter = filter; dateMenu = false
-                                            })
-                                        }
-                                    }
-                                }
-                                Box {
-                                    FilterChip(selected = signatureFilter != SignatureFilter.ANY,
-                                        onClick = { signatureMenu = true }, label = { Text(signatureFilter.label) })
-                                    DropdownMenu(signatureMenu, onDismissRequest = { signatureMenu = false }) {
-                                        SignatureFilter.values().forEach { filter ->
-                                            DropdownMenuItem(text = { Text(filter.label) }, onClick = {
-                                                signatureFilter = filter; signatureMenu = false
-                                            })
-                                        }
-                                    }
-                                }
-                            }
-                            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                                horizontalArrangement = Arrangement.spacedBy(7.dp),
-                                verticalAlignment = Alignment.CenterVertically) {
-                                Box {
-                                    FilterChip(selected = selectedCategory != "All categories",
-                                        onClick = { categoryMenu = true }, label = { Text(selectedCategory) })
-                                    DropdownMenu(categoryMenu, onDismissRequest = { categoryMenu = false }) {
-                                        categoryOptions.forEach { category ->
-                                            DropdownMenuItem(text = { Text(category) }, onClick = {
-                                                selectedCategory = category; categoryMenu = false
-                                            })
-                                        }
-                                    }
-                                }
-                                FilterChip(selected = favouritesOnly, onClick = { favouritesOnly = !favouritesOnly },
-                                    label = { Text("★ Favourites") })
-                                Box {
-                                    FilterChip(selected = previewMode != PreviewMode.MEDIUM,
-                                        onClick = { viewMenu = true }, label = { Text("View: ${previewMode.label}") })
-                                    DropdownMenu(viewMenu, onDismissRequest = { viewMenu = false }) {
-                                        PreviewMode.values().forEach { mode ->
-                                            DropdownMenuItem(text = { Text(mode.label) }, onClick = {
-                                                previewMode = mode; viewMenu = false
-                                            })
-                                        }
-                                    }
-                                }
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            FilterChip(
+                                selected = typeFilter != TypeFilter.ALL || dateFilter != DateFilter.ANY ||
+                                    signatureFilter != SignatureFilter.ANY || selectedCategory != "All categories" ||
+                                    favouritesOnly || previewMode != PreviewMode.MEDIUM,
+                                onClick = {
+                                    draftTypeFilter = typeFilter
+                                    draftDateFilter = dateFilter
+                                    draftSignatureFilter = signatureFilter
+                                    draftCategory = selectedCategory
+                                    draftFavouritesOnly = favouritesOnly
+                                    draftPreviewMode = previewMode
+                                    showFiltersDialog = true
+                                },
+                                label = { Text("☷ Filters") }
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text("${filteredDocuments.size} files", style = MaterialTheme.typography.labelMedium,
+                                color = Color(0xFF64756C))
+                            Spacer(Modifier.weight(1f))
+                            if (typeFilter != TypeFilter.ALL || dateFilter != DateFilter.ANY ||
+                                signatureFilter != SignatureFilter.ANY || selectedCategory != "All categories" ||
+                                favouritesOnly || previewMode != PreviewMode.MEDIUM) {
                                 TextButton(onClick = {
                                     typeFilter = TypeFilter.ALL
                                     dateFilter = DateFilter.ANY
                                     signatureFilter = SignatureFilter.ANY
-                                    favouritesOnly = false
                                     selectedCategory = "All categories"
-                                }) { Text("Reset") }
+                                    favouritesOnly = false
+                                    previewMode = PreviewMode.MEDIUM
+                                }, contentPadding = PaddingValues(horizontal = 5.dp, vertical = 1.dp)) {
+                                    Text("Reset", fontSize = 12.sp)
+                                }
                             }
                         }
                     }
                     item {
-                        Card(shape = RoundedCornerShape(18.dp),
-                            colors = CardDefaults.cardColors(containerColor = Color.White)) {
-                            Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                    Text("Your library", style = MaterialTheme.typography.titleMedium,
-                                        fontWeight = FontWeight.Bold)
-                                    Text("${filteredDocuments.size} shown  •  ${documents.size} saved",
-                                        style = MaterialTheme.typography.bodySmall, color = Color(0xFF64756C))
-                                }
-                                Button(onClick = onImportClick, shape = RoundedCornerShape(50),
-                                    colors = androidx.compose.material3.ButtonDefaults.buttonColors(
-                                        containerColor = Color(0xFF07583D))) { Text("＋ Import files") }
-                            }
+                        Row(Modifier.fillMaxWidth().padding(horizontal = 2.dp, vertical = 2.dp),
+                            verticalAlignment = Alignment.CenterVertically) {
+                            Text("Your library", style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                            Text("${filteredDocuments.size} shown • ${documents.size} saved",
+                                style = MaterialTheme.typography.labelSmall, color = Color(0xFF64756C))
                         }
                     }
                     if (visibleIds.isNotEmpty()) {
@@ -1002,6 +969,20 @@ private fun FileKhojApp(
                             )
                         }
                     }
+                }
+                Box(Modifier.align(Alignment.BottomEnd).padding(16.dp)) {
+                    FloatingActionButton(
+                        onClick = { showImportMenu = true },
+                        containerColor = Color(0xFF07583D),
+                        contentColor = Color.White,
+                        shape = CircleShape
+                    ) { Text("+", fontSize = 30.sp) }
+                    DropdownMenu(expanded = showImportMenu, onDismissRequest = { showImportMenu = false }) {
+                        DropdownMenuItem(text = { Text("Import files") },
+                            onClick = { showImportMenu = false; onImportClick() },
+                            leadingIcon = { Text("＋") })
+                    }
+                }
                 }
             }
         }
@@ -1287,6 +1268,79 @@ private fun FileKhojApp(
                 }
             },
             dismissButton = { TextButton(onClick = onPasswordCancel) { Text("Skip") } }
+        )
+    }
+
+    if (showFiltersDialog) {
+        AlertDialog(
+            onDismissRequest = { showFiltersDialog = false },
+            title = { Text("Filter your library") },
+            text = {
+                Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("File type", style = MaterialTheme.typography.labelLarge)
+                    Row(Modifier.horizontalScroll(rememberScrollState())) {
+                        TypeFilter.values().forEach { value ->
+                            FilterChip(selected = draftTypeFilter == value, onClick = { draftTypeFilter = value },
+                                label = { Text(value.label) })
+                        }
+                    }
+                    Text("Date added", style = MaterialTheme.typography.labelLarge)
+                    Row(Modifier.horizontalScroll(rememberScrollState())) {
+                        DateFilter.values().forEach { value ->
+                            FilterChip(selected = draftDateFilter == value, onClick = { draftDateFilter = value },
+                                label = { Text(value.label) })
+                        }
+                    }
+                    Text("PDF signature", style = MaterialTheme.typography.labelLarge)
+                    Row(Modifier.horizontalScroll(rememberScrollState())) {
+                        SignatureFilter.values().forEach { value ->
+                            FilterChip(selected = draftSignatureFilter == value, onClick = { draftSignatureFilter = value },
+                                label = { Text(value.label) })
+                        }
+                    }
+                    Text("Category", style = MaterialTheme.typography.labelLarge)
+                    Row(Modifier.horizontalScroll(rememberScrollState())) {
+                        categoryOptions.forEach { value ->
+                            FilterChip(selected = draftCategory == value, onClick = { draftCategory = value },
+                                label = { Text(value) })
+                        }
+                    }
+                    FilterChip(selected = draftFavouritesOnly, onClick = { draftFavouritesOnly = !draftFavouritesOnly },
+                        label = { Text("★ Favourites only") })
+                    Text("Preview density", style = MaterialTheme.typography.labelLarge)
+                    Row(Modifier.horizontalScroll(rememberScrollState())) {
+                        PreviewMode.values().forEach { value ->
+                            FilterChip(selected = draftPreviewMode == value, onClick = { draftPreviewMode = value },
+                                label = { Text(value.label) })
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    typeFilter = draftTypeFilter
+                    dateFilter = draftDateFilter
+                    signatureFilter = draftSignatureFilter
+                    selectedCategory = draftCategory
+                    favouritesOnly = draftFavouritesOnly
+                    previewMode = draftPreviewMode
+                    showFiltersDialog = false
+                }) { Text("Apply filters") }
+            },
+            dismissButton = {
+                Row {
+                    TextButton(onClick = {
+                        draftTypeFilter = TypeFilter.ALL
+                        draftDateFilter = DateFilter.ANY
+                        draftSignatureFilter = SignatureFilter.ANY
+                        draftCategory = "All categories"
+                        draftFavouritesOnly = false
+                        draftPreviewMode = PreviewMode.MEDIUM
+                    }) { Text("Reset") }
+                    TextButton(onClick = { showFiltersDialog = false }) { Text("Cancel") }
+                }
+            }
         )
     }
 
