@@ -2,6 +2,9 @@ package com.shabana.filekhoj.data
 
 import com.tom_roush.pdfbox.pdmodel.PDDocument
 import com.tom_roush.pdfbox.pdmodel.interactive.digitalsignature.PDSignature
+import com.tom_roush.pdfbox.cos.COSArray
+import com.tom_roush.pdfbox.cos.COSName
+import com.tom_roush.pdfbox.cos.COSString
 import org.bouncycastle.asn1.ASN1InputStream
 import org.bouncycastle.cms.CMSProcessableByteArray
 import org.bouncycastle.cms.CMSSignedData
@@ -11,6 +14,8 @@ import org.bouncycastle.cert.jcajce.JcaX509CertificateConverter
 import java.io.ByteArrayInputStream
 import java.io.File
 import java.security.KeyStore
+import java.security.Signature
+import java.security.cert.CertificateFactory
 import java.security.cert.CertPathBuilder
 import java.security.cert.CertStore
 import java.security.cert.CollectionCertStoreParameters
@@ -107,6 +112,22 @@ class PdfSignatureVerifier {
 
             val signedContent = signature.getSignedContent(pdfBytes)
             val paddedContents = signature.getContents(pdfBytes)
+
+            // UIDAI Aadhaar PDFs commonly use the legacy PDF subfilter
+            // /adbe.x509.rsa_sha1: /Cert contains the X.509 certificate chain,
+            // while /Contents contains a raw RSA signature, not CMS SignedData.
+            // Parse and verify this format explicitly instead of reporting it as
+            // an incomplete CMS signature.
+            if (signature.subFilter == "adbe.x509.rsa_sha1") {
+                return verifyLegacyX509RsaSha1(
+                    signature = signature,
+                    pdfBytes = pdfBytes,
+                    signedContent = signedContent,
+                    signatureContents = paddedContents,
+                    modifiedAfterSigning = modifiedAfterSigning
+                )
+            }
+
             val cmsContents = ASN1InputStream(ByteArrayInputStream(paddedContents)).use { input ->
                 input.readObject()?.encoded
             } ?: return DocumentEntity.SIGNATURE_STATUS_INVALID
@@ -165,6 +186,74 @@ class PdfSignatureVerifier {
                 }
                 if (!hasTrustedPath(certificate, allCertificates)) untrusted = true
             }
+            when {
+                expired -> DocumentEntity.SIGNATURE_STATUS_EXPIRED
+                untrusted -> DocumentEntity.SIGNATURE_STATUS_UNTRUSTED
+                modifiedAfterSigning -> DocumentEntity.SIGNATURE_STATUS_MODIFIED_AFTER_SIGNING
+                else -> DocumentEntity.SIGNATURE_STATUS_VERIFIED
+            }
+        } catch (_: Exception) {
+            DocumentEntity.SIGNATURE_STATUS_INCOMPLETE
+        }
+    }
+
+    private fun verifyLegacyX509RsaSha1(
+        signature: PDSignature,
+        pdfBytes: ByteArray,
+        signedContent: ByteArray,
+        signatureContents: ByteArray,
+        modifiedAfterSigning: Boolean
+    ): String {
+        return try {
+            val certObject = signature.cosObject.getDictionaryObject(COSName.CERT)
+                ?: return DocumentEntity.SIGNATURE_STATUS_INCOMPLETE
+            val certificateBytes = when (certObject) {
+                is COSArray -> (0 until certObject.size()).mapNotNull { index ->
+                    (certObject.getObject(index) as? COSString)?.bytes
+                }
+                is COSString -> listOf(certObject.bytes)
+                else -> emptyList()
+            }
+            if (certificateBytes.isEmpty()) return DocumentEntity.SIGNATURE_STATUS_INCOMPLETE
+
+            val certificateFactory = CertificateFactory.getInstance("X.509")
+            val certificates = certificateBytes.mapNotNull { bytes ->
+                try {
+                    certificateFactory.generateCertificate(ByteArrayInputStream(bytes)) as? X509Certificate
+                } catch (_: Exception) {
+                    null
+                }
+            }
+            val signerCertificate = certificates.firstOrNull()
+                ?: return DocumentEntity.SIGNATURE_STATUS_INCOMPLETE
+
+            // PDF /Contents is padded to reserve space. RSA signatures have a fixed
+            // length determined by the signer's public-key modulus.
+            val rsaSignatureLength = (signerCertificate.publicKey as? java.security.interfaces.RSAPublicKey)
+                ?.modulus?.bitLength()?.plus(7)?.div(8)
+                ?: return DocumentEntity.SIGNATURE_STATUS_INCOMPLETE
+            if (signatureContents.size < rsaSignatureLength) {
+                return DocumentEntity.SIGNATURE_STATUS_INVALID
+            }
+            if (signatureContents.copyOfRange(rsaSignatureLength, signatureContents.size)
+                    .any { it != 0.toByte() }) {
+                return DocumentEntity.SIGNATURE_STATUS_INVALID
+            }
+            val rawSignature = signatureContents.copyOfRange(0, rsaSignatureLength)
+            val verifier = Signature.getInstance("SHA1withRSA")
+            verifier.initVerify(signerCertificate.publicKey)
+            verifier.update(signedContent)
+            if (!verifier.verify(rawSignature)) return DocumentEntity.SIGNATURE_STATUS_INVALID
+
+            val expired = try {
+                signerCertificate.checkValidity(Date())
+                false
+            } catch (_: java.security.cert.CertificateExpiredException) {
+                true
+            } catch (_: java.security.cert.CertificateNotYetValidException) {
+                return DocumentEntity.SIGNATURE_STATUS_UNTRUSTED
+            }
+            val untrusted = !hasTrustedPath(signerCertificate, certificates)
             when {
                 expired -> DocumentEntity.SIGNATURE_STATUS_EXPIRED
                 untrusted -> DocumentEntity.SIGNATURE_STATUS_UNTRUSTED
