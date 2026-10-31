@@ -71,6 +71,7 @@ class PdfSignatureVerifier {
 
         var sawUntrusted = false
         var sawExpired = false
+        var sawValidAtClaimedSigningTime = false
         var sawIncomplete = false
         var sawModifiedAfterSigning = false
         for (signature in signatures) {
@@ -79,13 +80,14 @@ class PdfSignatureVerifier {
                     return SignatureVerificationResult(DocumentEntity.SIGNATURE_STATUS_INVALID, signatures.size)
                 DocumentEntity.SIGNATURE_STATUS_UNTRUSTED -> sawUntrusted = true
                 DocumentEntity.SIGNATURE_STATUS_EXPIRED -> sawExpired = true
-                DocumentEntity.SIGNATURE_STATUS_VALID_AT_SIGNING_TIME -> sawExpired = true
+                DocumentEntity.SIGNATURE_STATUS_VALID_AT_SIGNING_TIME -> sawValidAtClaimedSigningTime = true
                 DocumentEntity.SIGNATURE_STATUS_INCOMPLETE -> sawIncomplete = true
                 DocumentEntity.SIGNATURE_STATUS_MODIFIED_AFTER_SIGNING -> sawModifiedAfterSigning = true
             }
         }
         val status = when {
             sawIncomplete -> DocumentEntity.SIGNATURE_STATUS_INCOMPLETE
+            sawValidAtClaimedSigningTime -> DocumentEntity.SIGNATURE_STATUS_VALID_AT_SIGNING_TIME
             sawExpired -> DocumentEntity.SIGNATURE_STATUS_EXPIRED
             sawUntrusted -> DocumentEntity.SIGNATURE_STATUS_UNTRUSTED
             sawModifiedAfterSigning -> DocumentEntity.SIGNATURE_STATUS_MODIFIED_AFTER_SIGNING
@@ -145,6 +147,7 @@ class PdfSignatureVerifier {
 
             var untrusted = false
             var expired = false
+            var validAtClaimedSigningDate = false
             for (signer in signers) {
                 // Match issuer and serial as ASN.1 values rather than converting
                 // distinguished names to strings. This avoids formatting differences
@@ -182,13 +185,16 @@ class PdfSignatureVerifier {
                     certificate.checkValidity(Date())
                 } catch (_: java.security.cert.CertificateExpiredException) {
                     expired = true
+                    if (isValidAtClaimedSigningDate(certificate, signature)) {
+                        validAtClaimedSigningDate = true
+                    }
                 } catch (_: java.security.cert.CertificateNotYetValidException) {
                     return DocumentEntity.SIGNATURE_STATUS_UNTRUSTED
                 }
                 if (!hasTrustedPath(certificate, allCertificates)) untrusted = true
             }
             when {
-                expired && isValidAtClaimedSigningDate(certificate, signature) ->
+                expired && validAtClaimedSigningDate ->
                     DocumentEntity.SIGNATURE_STATUS_VALID_AT_SIGNING_TIME
                 expired -> DocumentEntity.SIGNATURE_STATUS_EXPIRED
                 untrusted -> DocumentEntity.SIGNATURE_STATUS_UNTRUSTED
