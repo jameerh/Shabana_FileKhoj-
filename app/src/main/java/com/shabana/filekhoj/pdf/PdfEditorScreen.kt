@@ -67,7 +67,7 @@ fun PdfEditorScreen(
     context: Context,
     document: DocumentEntity,
     onClose: () -> Unit,
-    onSaveCopy: (File, (Boolean, String?) -> Unit) -> Unit
+    onSaveCopy: (File, String, (Boolean, String?) -> Unit) -> Unit
 ) {
     var session by remember(document.id) { mutableStateOf<PdfEditorSession?>(null) }
     var pages by remember(document.id) { mutableStateOf(emptyList<PdfEditorPage>()) }
@@ -195,7 +195,9 @@ fun PdfEditorScreen(
                     "PDF editor: generated ${outputFile.length()} bytes; requesting Android Save As"
                 )
                 val fileForHost = outputFile
-                onSaveCopy(fileForHost) { success, feedback ->
+                val baseName = document.displayName.substringBeforeLast('.', document.displayName)
+                    .trim().replace(Regex("[\\\\/:*?\"<>|]"), "_").ifBlank { "Document" }
+                onSaveCopy(fileForHost, "$baseName.pdf") { success, feedback ->
                     isSaving = false
                     if (success) {
                         originalPages = currentPages
