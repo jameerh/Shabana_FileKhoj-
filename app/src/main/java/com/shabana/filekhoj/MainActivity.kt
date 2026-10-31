@@ -493,6 +493,12 @@ private fun FileKhojApp(
     var categoryMenu by remember { mutableStateOf(false) }
     var viewMenu by remember { mutableStateOf(false) }
     var showDeleteConfirmation by remember { mutableStateOf(false) }
+    var showFinalDeleteConfirmation by remember { mutableStateOf(false) }
+    var customizingDocument by remember { mutableStateOf<DocumentEntity?>(null) }
+    var customLabelDraft by remember(customizingDocument) { mutableStateOf("") }
+    var customColorDraft by remember(customizingDocument) { mutableStateOf(0xFFEAF2EC.toInt()) }
+    val cardPrefs = remember(context) { context.getSharedPreferences("filekhoj_card_metadata", Context.MODE_PRIVATE) }
+    var cardMetadataVersion by remember { mutableStateOf(0) }
     var showBrandHero by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
@@ -965,7 +971,13 @@ private fun FileKhojApp(
                                 onDelete = { selectedIds = setOf(document.id); showDeleteConfirmation = true },
                                 onFavourite = {
                                     scope.launch { repository.setFavourite(document.id, !document.isFavourite) }
-                                }
+                                },
+                                onCustomize = { customizingDocument = document },
+                                customColor = cardPrefs.getInt("color_${document.id}", 0xFFFFFFFF.toInt()),
+                                customLabels = cardPrefs.getString("labels_${document.id}", "").orEmpty()
+                                    .split("\u001F").filter(String::isNotBlank),
+                                onEdit = { editingDocument = document },
+                                onEditPdf = { editingPdfDocument = document }
                             )
                         }
                     }
@@ -1347,21 +1359,79 @@ private fun FileKhojApp(
     if (showDeleteConfirmation) {
         AlertDialog(
             onDismissRequest = { showDeleteConfirmation = false },
-            title = { Text("Remove selected documents?") },
-            text = { Text("This removes ${visibleSelectedIds.size} item(s) from the FileKhoj library. Original source documents will not be deleted.") },
+            title = { Text("Remove from FileKhoj?") },
+            text = { Text("First confirmation: remove ${selectedIds.intersect(visibleIds).size} selected item(s) from the library. Original files are not deleted.") },
+            confirmButton = {
+                TextButton(onClick = { showDeleteConfirmation = false; showFinalDeleteConfirmation = true }) { Text("Continue") }
+            },
+            dismissButton = { TextButton(onClick = { showDeleteConfirmation = false }) { Text("Cancel") } }
+        )
+    }
+    if (showFinalDeleteConfirmation) {
+        AlertDialog(
+            onDismissRequest = { showFinalDeleteConfirmation = false },
+            title = { Text("Confirm removal") },
+            text = { Text("Are you sure? This removes the selected entries and any FileKhoj-managed private copies. Source documents outside FileKhoj are kept.") },
             confirmButton = {
                 TextButton(onClick = {
                     val ids = selectedIds.intersect(visibleIds).toList()
-                    showDeleteConfirmation = false
+                    showFinalDeleteConfirmation = false
                     scope.launch {
                         val result = repository.deleteDocuments(ids)
                         selectedIds = emptySet()
                         onStatus("Removed ${result.deleted} item(s) from FileKhoj" +
                             if (result.failed > 0) "; ${result.failed} could not be removed." else ". Original source files were kept.")
                     }
-                }) { Text("Remove") }
+                }) { Text("Remove permanently") }
             },
-            dismissButton = { TextButton(onClick = { showDeleteConfirmation = false }) { Text("Cancel") } }
+            dismissButton = { TextButton(onClick = { showFinalDeleteConfirmation = false }) { Text("Cancel") } }
+        )
+    }
+    if (customizingDocument != null) {
+        AlertDialog(
+            onDismissRequest = { customizingDocument = null },
+            title = { Text("Customize file card") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Card colour")
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        listOf(0xFFFFFFFF.toInt(), 0xFFEAF2EC.toInt(), 0xFFFFF0D5.toInt(),
+                            0xFFE8F0FE.toInt(), 0xFFFCE8E6.toInt(), 0xFFF1E8FF.toInt()).forEach { color ->
+                            Box(Modifier.size(30.dp).clip(CircleShape).background(Color(color))
+                                .clickable { customColorDraft = color },
+                                contentAlignment = Alignment.Center) {
+                                if (customColorDraft == color) Text("✓", color = Color(0xFF07583D))
+                            }
+                        }
+                    }
+                    OutlinedTextField(customLabelDraft, { customLabelDraft = it },
+                        Modifier.fillMaxWidth(), label = { Text("Labels (comma separated)") },
+                        placeholder = { Text("Urgent, Aadhaar, Family") })
+                    Text("Labels appear at the bottom of this file card.", style = MaterialTheme.typography.bodySmall)
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val doc = customizingDocument ?: return@TextButton
+                    val labels = customLabelDraft.split(",").map(String::trim).filter(String::isNotBlank).distinct().take(6)
+                    cardPrefs.edit().putInt("color_${doc.id}", customColorDraft)
+                        .putString("labels_${doc.id}", labels.joinToString("\u001F")).apply()
+                    cardMetadataVersion++
+                    customizingDocument = null
+                    onStatus("Card colour and labels saved.")
+                }) { Text("Save") }
+            },
+            dismissButton = {
+                Row {
+                    TextButton(onClick = {
+                        val doc = customizingDocument
+                        if (doc != null) cardPrefs.edit().remove("labels_${doc.id}").remove("color_${doc.id}").apply()
+                        cardMetadataVersion++
+                        customizingDocument = null
+                    }) { Text("Clear") }
+                    TextButton(onClick = { customizingDocument = null }) { Text("Cancel") }
+                }
+            }
         )
     }
 }
