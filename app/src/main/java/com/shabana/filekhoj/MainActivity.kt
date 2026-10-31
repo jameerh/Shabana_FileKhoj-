@@ -163,6 +163,7 @@ class MainActivity : ComponentActivity() {
         backupRestoreLauncher = registerForActivityResult(ActivityResultContracts.OpenDocument()) { sourceUri ->
             if (sourceUri == null) importStatus.value = "Restore cancelled."
             else lifecycleScope.launch {
+                importStatus.value = "Restoring backup…"
                 val temp = File(cacheDir, "filekhoj-restore-${System.currentTimeMillis()}.zip")
                 try {
                     withContext(Dispatchers.IO) {
@@ -382,10 +383,18 @@ class MainActivity : ComponentActivity() {
                 },
                 onSearchSubmitted = ::saveSearch,
                 onBackupClick = ::createBackupAndExport,
-                onRestoreClick = { backupRestoreLauncher.launch(arrayOf("application/zip", "application/octet-stream")) },
+                onRestoreClick = {
+                    importStatus.value = "Choose a FileKhoj backup ZIP to restore…"
+                    backupRestoreLauncher.launch(arrayOf("application/zip", "application/octet-stream"))
+                },
                 onBackupSchedule = { days ->
-                    if (days == null) ScheduledBackupWorker.disable(applicationContext) else ScheduledBackupWorker.schedule(applicationContext, days)
-                    importStatus.value = if (days == null) "Automatic backup disabled." else "Automatic local backup scheduled every ${days} day(s)."
+                    if (days == null) {
+                        ScheduledBackupWorker.disable(applicationContext)
+                        importStatus.value = "Automatic local backup disabled. Existing backup files were kept."
+                    } else {
+                        ScheduledBackupWorker.schedule(applicationContext, days)
+                        importStatus.value = "Schedule saved: automatic local backup every ${days} day(s). Google Drive upload is not enabled yet."
+                    }
                 },
                 onImportClick = {
                     documentPicker.launch(arrayOf(
@@ -1437,31 +1446,64 @@ private fun FileKhojApp(
     }
 
     if (showBackupDialog) {
-        var selectedInterval by remember { mutableStateOf(7) }
+        val backupPrefs = remember(context) {
+            context.getSharedPreferences(ScheduledBackupWorker.PREFS, Context.MODE_PRIVATE)
+        }
+        var selectedInterval by remember {
+            mutableStateOf(backupPrefs.getLong(ScheduledBackupWorker.KEY_INTERVAL_DAYS, 7L).toInt().takeIf { it in setOf(1, 7, 30) } ?: 7)
+        }
+        val status = statusMessage.orEmpty()
+        val operationInProgress = status.startsWith("Preparing document backup") ||
+            status.startsWith("Restoring backup") ||
+            status.startsWith("Validating backup") ||
+            status.startsWith("Choose a FileKhoj backup")
         AlertDialog(
-            onDismissRequest = { showBackupDialog = false },
+            onDismissRequest = { if (!operationInProgress) showBackupDialog = false },
             title = { Text("Backup & Restore") },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("Create a portable ZIP containing imported document bytes and library metadata.")
-                    Text("Automatic local backup interval")
+                    Text("Automatic local backup interval", style = MaterialTheme.typography.labelLarge)
                     listOf(1 to "Every day", 7 to "Every 7 days", 30 to "Every month").forEach { (days, label) ->
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            androidx.compose.material3.RadioButton(selected = selectedInterval == days, onClick = { selectedInterval = days })
+                            androidx.compose.material3.RadioButton(
+                                selected = selectedInterval == days,
+                                enabled = !operationInProgress,
+                                onClick = { selectedInterval = days }
+                            )
                             Text(label)
                         }
                     }
-                    Text("Scheduled backups are kept privately on this phone. Google Drive linking is not active yet.", style = MaterialTheme.typography.bodySmall)
+                    Text("Scheduled backups are stored on this phone. Google Drive upload is not connected yet.", style = MaterialTheme.typography.bodySmall)
+                    if (operationInProgress) {
+                        androidx.compose.material3.LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                    }
+                    if (status.isNotBlank()) {
+                        Surface(
+                            color = if (status.contains("failed", ignoreCase = true) || status.contains("could not", ignoreCase = true))
+                                MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.secondaryContainer,
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Text(status, modifier = Modifier.fillMaxWidth().padding(10.dp), style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                    val lastBackup = backupPrefs.getLong(ScheduledBackupWorker.KEY_LAST_SUCCESS, 0L)
+                    if (lastBackup > 0L) Text(
+                        "Last automatic local backup: ${DateFormat.getDateTimeInstance().format(Date(lastBackup))}",
+                        style = MaterialTheme.typography.bodySmall
+                    )
                 }
             },
             confirmButton = {
                 Column(horizontalAlignment = Alignment.End) {
-                    TextButton(onClick = { onBackupSchedule(selectedInterval); showBackupDialog = false }) { Text("Save schedule") }
-                    TextButton(onClick = { showBackupDialog = false; onBackupClick() }) { Text("Back up now / Export ZIP") }
-                    TextButton(onClick = { showBackupDialog = false; onRestoreClick() }) { Text("Restore from ZIP") }
+                    TextButton(enabled = !operationInProgress, onClick = { onBackupSchedule(selectedInterval) }) { Text("Save schedule") }
+                    TextButton(enabled = !operationInProgress, onClick = onBackupClick) { Text("Back up now / Export ZIP") }
+                    TextButton(enabled = !operationInProgress, onClick = onRestoreClick) { Text("Restore from ZIP") }
                 }
             },
-            dismissButton = { TextButton(onClick = { onBackupSchedule(null); showBackupDialog = false }) { Text("Disable schedule") } }
+            dismissButton = {
+                TextButton(enabled = !operationInProgress, onClick = { onBackupSchedule(null) }) { Text("Disable schedule") }
+            }
         )
     }
 
