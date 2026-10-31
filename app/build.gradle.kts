@@ -45,6 +45,9 @@ dependencies {
     implementation("com.google.mlkit:text-recognition:16.0.1")
     implementation("com.google.mlkit:text-recognition-devanagari:16.0.1")
     implementation("com.google.android.gms:play-services-tasks:18.2.0")
+    // Google account sign-in and OAuth token access for Drive backups.
+    implementation("com.google.android.gms:play-services-auth:21.3.0")
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("androidx.datastore:datastore-preferences:1.1.2")
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
