@@ -233,11 +233,17 @@ class PdfSignatureVerifier {
                 ?.modulus?.bitLength()?.plus(7)?.div(8)
                 ?: return DocumentEntity.SIGNATURE_STATUS_INCOMPLETE
             if (signatureContents.size < rsaSignatureLength) {
-                return DocumentEntity.SIGNATURE_STATUS_INVALID
+                return DocumentEntity.SIGNATURE_STATUS_INCOMPLETE
             }
+            // Some legacy PDFs expose extra non-zero bytes in /Contents after
+            // the modulus-sized RSA value. Those bytes are not valid zero padding,
+            // but they also do not prove that the cryptographic signature is bad:
+            // do not truncate or label such a payload "invalid" without a known
+            // encoding rule. Report verification as incomplete until the format is
+            // understood, rather than guessing at a signature slice.
             if (signatureContents.copyOfRange(rsaSignatureLength, signatureContents.size)
                     .any { it != 0.toByte() }) {
-                return DocumentEntity.SIGNATURE_STATUS_INVALID
+                return DocumentEntity.SIGNATURE_STATUS_INCOMPLETE
             }
             val rawSignature = signatureContents.copyOfRange(0, rsaSignatureLength)
             val verifier = Signature.getInstance("SHA1withRSA")
