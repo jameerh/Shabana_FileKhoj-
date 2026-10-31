@@ -362,6 +362,7 @@ class MainActivity : ComponentActivity() {
 
     private fun launchPdfExport(
         file: File,
+        suggestedName: String,
         onComplete: (Boolean, String?) -> Unit
     ) {
         if (pendingPdfExportFile != null) {
@@ -378,7 +379,7 @@ class MainActivity : ComponentActivity() {
         pendingPdfExportCompletion = onComplete
         try {
             Toast.makeText(this, "PDF generated. Choose a folder and tap Save.", Toast.LENGTH_LONG).show()
-            pdfExportLauncher.launch(file.name)
+            pdfExportLauncher.launch(suggestedName)
         } catch (error: Exception) {
             pendingPdfExportFile = null
             pendingPdfExportCompletion = null
