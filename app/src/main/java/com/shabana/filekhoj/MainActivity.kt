@@ -1461,7 +1461,8 @@ private fun FileKhojApp(
             status.startsWith("Validating backup") ||
             status.startsWith("Choose a FileKhoj backup")
         AlertDialog(
-            onDismissRequest = { if (!operationInProgress) showBackupDialog = false },
+            // Let the dialog close while an async task continues; status remains visible on home.
+            onDismissRequest = { showBackupDialog = false },
             title = {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -1469,20 +1470,22 @@ private fun FileKhojApp(
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Text("Backup & Restore", style = MaterialTheme.typography.titleLarge)
-                    TextButton(
-                        enabled = !operationInProgress,
+                    androidx.compose.material3.IconButton(
                         onClick = { showBackupDialog = false },
-                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
-                    ) { Text("Close") }
+                        modifier = Modifier.size(40.dp)
+                    ) {
+                        Text("✕", style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
                 }
             },
             text = {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .heightIn(max = 360.dp)
+                        .heightIn(max = 420.dp)
                         .verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
                     Text(
                         "Protect your imported documents and library details.",
@@ -1494,8 +1497,8 @@ private fun FileKhojApp(
                         color = MaterialTheme.colorScheme.surfaceVariant
                     ) {
                         Column(
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             Text("Automatic local backup", style = MaterialTheme.typography.titleSmall)
                             listOf(1 to "Daily", 7 to "Every 7 days", 30 to "Monthly").forEach { (days, label) ->
@@ -1503,7 +1506,7 @@ private fun FileKhojApp(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .clickable(enabled = !operationInProgress) { selectedInterval = days }
-                                        .padding(vertical = 1.dp),
+                                        .padding(vertical = 4.dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     androidx.compose.material3.RadioButton(
@@ -1528,34 +1531,34 @@ private fun FileKhojApp(
                         color = MaterialTheme.colorScheme.surfaceVariant
                     ) {
                         Column(
-                            modifier = Modifier.padding(12.dp),
-                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                            modifier = Modifier.padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
                             Text("Google Drive / ZIP", style = MaterialTheme.typography.titleSmall)
                             Text(
-                                "Export opens Android's save picker; choose Google Drive if it is available. Restore can also browse Drive files. Automatic cloud upload still requires Drive sign-in configuration.",
+                                "Create a portable ZIP backup or restore an existing archive. Google Drive account sync is not connected in this build; Drive integration will be added separately.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
                             ) {
                                 androidx.compose.material3.OutlinedButton(
-                                    modifier = Modifier.weight(1f),
+                                    modifier = Modifier.weight(1f).heightIn(min = 48.dp),
                                     enabled = !operationInProgress,
                                     onClick = onBackupClick,
-                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp)
+                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 12.dp)
                                 ) {
-                                    Text("Export backup", style = MaterialTheme.typography.labelMedium)
+                                    Text("Export ZIP", style = MaterialTheme.typography.labelLarge)
                                 }
                                 androidx.compose.material3.OutlinedButton(
-                                    modifier = Modifier.weight(1f),
+                                    modifier = Modifier.weight(1f).heightIn(min = 48.dp),
                                     enabled = !operationInProgress,
                                     onClick = onRestoreClick,
-                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp)
+                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 12.dp)
                                 ) {
-                                    Text("Restore backup", style = MaterialTheme.typography.labelMedium)
+                                    Text("Restore ZIP", style = MaterialTheme.typography.labelLarge)
                                 }
                             }
                         }
@@ -1595,8 +1598,8 @@ private fun FileKhojApp(
             },
             confirmButton = {
                 Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     Button(
                         modifier = Modifier.fillMaxWidth(),
@@ -1607,14 +1610,15 @@ private fun FileKhojApp(
                     }
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         TextButton(
+                            modifier = Modifier.weight(1f),
                             enabled = !operationInProgress,
                             onClick = { onBackupSchedule(null) }
                         ) { Text("Disable schedule") }
                         TextButton(
-                            enabled = !operationInProgress,
+                            modifier = Modifier.weight(1f),
                             onClick = { showBackupDialog = false }
                         ) { Text("Close") }
                     }
