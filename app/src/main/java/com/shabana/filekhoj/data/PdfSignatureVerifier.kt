@@ -124,13 +124,16 @@ class PdfSignatureVerifier {
             var untrusted = false
             var expired = false
             for (signer in signers) {
-                // Match the SignerIdentifier using Bouncy Castle's CMS selector.
-                // Converting issuer names to strings and comparing X500Principal text
-                // is fragile across equivalent distinguished-name encodings and was
-                // causing valid signers to be reported as incomplete.
-                val signerCertificateHolder = certificateStore.getMatches(signer.sid)
-                    .firstOrNull()
-                    ?: return DocumentEntity.SIGNATURE_STATUS_INCOMPLETE
+                // Match issuer and serial as ASN.1 values rather than converting
+                // distinguished names to strings. This avoids formatting differences
+                // between equivalent X.500 names and works with the bundled BC API.
+                val signerId = signer.sid
+                val signerCertificateHolder = allCertificateHolders.firstOrNull { holder ->
+                    signerId.serialNumber != null &&
+                        signerId.serialNumber == holder.serialNumber &&
+                        signerId.issuer != null &&
+                        signerId.issuer == holder.issuer
+                } ?: return DocumentEntity.SIGNATURE_STATUS_INCOMPLETE
                 val certificate = JcaX509CertificateConverter()
                     .getCertificate(signerCertificateHolder as X509CertificateHolder)
 
