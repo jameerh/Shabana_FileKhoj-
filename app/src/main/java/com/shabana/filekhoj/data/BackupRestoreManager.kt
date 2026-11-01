@@ -115,7 +115,10 @@ class BackupRestoreManager(context: Context) {
             val root = manifestBytes?.let { JSONObject(String(it, Charsets.UTF_8)) }
                 ?: throw IllegalArgumentException("This is not a FileKhoj backup.")
             require(root.optString("format") == FORMAT) { "Unsupported backup format." }
-            require(root.optInt("version", -1) == VERSION) { "Unsupported FileKhoj backup version." }
+            val archiveVersion = root.optInt("version", -1)
+            require(archiveVersion in MIN_SUPPORTED_VERSION..VERSION) {
+                "Unsupported FileKhoj backup version."
+            }
             val rows = root.optJSONArray("documents")
                 ?: throw IllegalArgumentException("Backup manifest has no document list.")
             require(rows.length() <= MAX_DOCUMENTS) { "Backup contains too many documents." }
@@ -163,7 +166,22 @@ class BackupRestoreManager(context: Context) {
                 }
                 val uri = FileProvider.getUriForFile(app, "${app.packageName}.fileprovider", target)
                 val encryptedSource = row.optBoolean("isEncryptedSource", false)
-                val storedDecrypted = row.optBoolean("isStoredDecrypted", false)
+                val storedDecrypted = if (row.has("isStoredDecrypted")) {
+                    row.optBoolean("isStoredDecrypted", false)
+                } else {
+                    // Version 1 archives did not record whether the payload was an unlocked
+                    // derivative. Conservatively avoid presenting a signed PDF derivative as
+                    // independently verified when the old manifest cannot disambiguate it.
+                    val signatureStatus = row.optString(
+                        "signatureStatus",
+                        DocumentEntity.SIGNATURE_STATUS_UNKNOWN
+                    )
+                    row.optString("mimeType", "").contains("pdf", ignoreCase = true) &&
+                        signatureStatus !in setOf(
+                            DocumentEntity.SIGNATURE_STATUS_UNKNOWN,
+                            DocumentEntity.SIGNATURE_STATUS_UNSIGNED
+                        )
+                }
                 pendingFiles += target
                 pendingDocuments += DocumentEntity(
                     displayName = safeName,
@@ -308,7 +326,8 @@ class BackupRestoreManager(context: Context) {
     companion object {
         const val FORMAT = "SHABANA_FILEKHOJ_BACKUP"
         const val MANIFEST = "filekhoj-manifest.json"
-        private const val VERSION = 1
+        private const val MIN_SUPPORTED_VERSION = 1
+        private const val VERSION = 2
         private const val MAX_DOCUMENTS = 10_000
         private const val MAX_DISPLAY_NAME_LENGTH = 512
         private const val MAX_MANIFEST_BYTES = 16 * 1024 * 1024
