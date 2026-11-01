@@ -1769,6 +1769,141 @@ private fun FileKhojApp(
         )
     }
 
+
+    if (showWorkspaceManager) {
+        AlertDialog(
+            onDismissRequest = { showWorkspaceManager = false; workspaceEditId = null; workspaceNameDraft = "" },
+            title = { Text("Document workspaces") },
+            text = {
+                Column(
+                    Modifier.fillMaxWidth().heightIn(max = 480.dp).verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text("Keep Personal, Shop, Medical, Farm and other documents organized in one app. Profiles organize files; they are not encrypted vaults.",
+                        style = MaterialTheme.typography.bodySmall, color = Color(0xFF64756C))
+                    OutlinedTextField(
+                        value = workspaceNameDraft,
+                        onValueChange = { workspaceNameDraft = it.take(DocumentProfileEntity.MAX_NAME_LENGTH) },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text(if (workspaceEditId == null) "New workspace name" else "Rename workspace") },
+                        singleLine = true
+                    )
+                    Button(
+                        modifier = Modifier.fillMaxWidth(),
+                        onClick = {
+                            scope.launch {
+                                try {
+                                    val editingId = workspaceEditId
+                                    if (editingId == null) {
+                                        val createdId = repository.createProfile(workspaceNameDraft)
+                                        activeWorkspaceId = createdId
+                                        workspacePrefs.edit().putLong("active_profile_id", createdId)
+                                            .putLong("last_import_profile_id", createdId).apply()
+                                        onStatus("Workspace created.")
+                                    } else {
+                                        repository.renameProfile(editingId, workspaceNameDraft)
+                                        onStatus("Workspace renamed.")
+                                    }
+                                    workspaceNameDraft = ""
+                                    workspaceEditId = null
+                                } catch (error: Exception) {
+                                    onStatus(error.message ?: "Could not save workspace.")
+                                }
+                            }
+                        }
+                    ) { Text(if (workspaceEditId == null) "＋ Create workspace" else "Save name") }
+                    workspaceProfiles.forEach { profile ->
+                        Row(
+                            Modifier.fillMaxWidth().padding(vertical = 3.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(Modifier.weight(1f)) {
+                                Text(profile.name, style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.SemiBold)
+                                Text("${workspaceAssignments.count { it.profileId == profile.id }} document assignments" +
+                                    if (profile.isDefault) " • default" else "",
+                                    style = MaterialTheme.typography.labelSmall, color = Color(0xFF64756C))
+                            }
+                            TextButton(onClick = {
+                                workspaceEditId = profile.id
+                                workspaceNameDraft = profile.name
+                            }) { Text("Edit") }
+                            if (!profile.isDefault) {
+                                TextButton(onClick = {
+                                    scope.launch {
+                                        try {
+                                            repository.deleteProfile(profile.id)
+                                            if (activeWorkspaceId == profile.id) {
+                                                val fallback = workspaceProfiles.firstOrNull { it.isDefault }?.id ?: 1L
+                                                activeWorkspaceId = fallback
+                                                workspacePrefs.edit().putLong("active_profile_id", fallback)
+                                                    .putLong("last_import_profile_id", fallback).apply()
+                                            }
+                                            if (workspaceEditId == profile.id) {
+                                                workspaceEditId = null
+                                                workspaceNameDraft = ""
+                                            }
+                                            onStatus("Workspace deleted. Its documents were preserved in the default workspace.")
+                                        } catch (error: Exception) {
+                                            onStatus(error.message ?: "Could not delete workspace.")
+                                        }
+                                    }
+                                }) { Text("Delete", color = Color(0xFFB3261E)) }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { showWorkspaceManager = false; workspaceEditId = null; workspaceNameDraft = "" }) { Text("Done") } }
+        )
+    }
+
+    if (showMoveProfileDialog) {
+        AlertDialog(
+            onDismissRequest = { showMoveProfileDialog = false },
+            title = { Text("Move / assign documents") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("${visibleSelectedIds.size} selected document(s). Choose a destination workspace.",
+                        style = MaterialTheme.typography.bodySmall)
+                    Text(
+                        if (activeWorkspaceId == null)
+                            "From All profiles, this adds the documents to the destination without removing existing assignments."
+                        else
+                            "From a specific workspace, this moves the documents there while preserving any other profile assignments.",
+                        style = MaterialTheme.typography.bodySmall, color = Color(0xFF64756C)
+                    )
+                    workspaceProfiles.filter { it.id != activeWorkspaceId || activeWorkspaceId == null }.forEach { profile ->
+                        TextButton(
+                            modifier = Modifier.fillMaxWidth(),
+                            onClick = {
+                                val ids = visibleSelectedIds.toList()
+                                val sourceId = activeWorkspaceId
+                                scope.launch {
+                                    try {
+                                        repository.moveDocumentsToProfile(ids, sourceId, profile.id)
+                                        activeWorkspaceId = profile.id
+                                        workspacePrefs.edit().putLong("active_profile_id", profile.id)
+                                            .putLong("last_import_profile_id", profile.id).apply()
+                                        selectedIds = emptySet()
+                                        showMoveProfileDialog = false
+                                        onStatus(if (sourceId == null)
+                                            "Added ${ids.size} document(s) to ${profile.name}; existing assignments were kept."
+                                        else
+                                            "Moved ${ids.size} document(s) to ${profile.name}; other profile assignments were kept.")
+                                    } catch (error: Exception) {
+                                        onStatus(error.message ?: "Could not move documents.")
+                                    }
+                                }
+                            }
+                        ) { Text("${profile.name}  ·  ${workspaceAssignments.count { it.profileId == profile.id }} assigned") }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { showMoveProfileDialog = false }) { Text("Cancel") } }
+        )
+    }
+
     if (showBackupDialog) {
         val backupPrefs = remember(context) {
             context.getSharedPreferences(ScheduledBackupWorker.PREFS, Context.MODE_PRIVATE)
