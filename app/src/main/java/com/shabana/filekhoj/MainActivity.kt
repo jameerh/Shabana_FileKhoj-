@@ -1405,6 +1405,7 @@ private fun FileKhojApp(
                         }
                     } else {
                         items(filteredDocuments, key = { it.id }) { document ->
+                            val profileSuggestion = DocumentProfileDefaults.suggest(document.displayName, document.mimeType)
                             DocumentRow(
                                 context = context, document = document, mode = previewMode,
                                 selected = document.id in selectedIds,
@@ -1427,7 +1428,26 @@ private fun FileKhojApp(
                                 customColor = cardPrefs.getInt("color_${document.id}", 0xFFFFFFFF.toInt()),
                                 customLabels = cardPrefs.getString("labels_${document.id}", "").orEmpty()
                                     .split("\u001F").filter(String::isNotBlank),
-                                suggestion = DocumentProfileDefaults.suggest(document.displayName, document.mimeType)
+                                suggestion = profileSuggestion,
+                                onApplySuggestion = {
+                                    val target = workspaceProfiles.firstOrNull { it.name == profileSuggestion?.profileName }
+                                    if (target == null || profileSuggestion == null) {
+                                        onStatus("Create or restore the suggested workspace before applying this suggestion.")
+                                    } else {
+                                        scope.launch {
+                                            try {
+                                                repository.assignDocumentsToProfile(listOf(document.id), target.id)
+                                                repository.setProfileCategory(document.id, target.id, profileSuggestion.category)
+                                                activeWorkspaceId = target.id
+                                                workspacePrefs.edit().putLong("active_profile_id", target.id)
+                                                    .putLong("last_import_profile_id", target.id).apply()
+                                                onStatus("Assigned to ${target.name} · ${profileSuggestion.category}.")
+                                            } catch (error: Exception) {
+                                                onStatus(error.message ?: "Could not apply profile suggestion.")
+                                            }
+                                        }
+                                    }
+                                }
                             )
                         }
                     }
@@ -2418,7 +2438,8 @@ private fun DocumentRow(
     onCustomize: () -> Unit,
     customColor: Int,
     customLabels: List<String>,
-    suggestion: ProfileSuggestion?
+    suggestion: ProfileSuggestion?,
+    onApplySuggestion: () -> Unit
 ) {
     val isPdf = document.mimeType.contains("pdf", true)
     val isImage = document.mimeType.startsWith("image/")
@@ -2459,9 +2480,15 @@ private fun DocumentRow(
                         style = MaterialTheme.typography.bodySmall, color = Color(0xFF66766D),
                         maxLines = 1, overflow = TextOverflow.Ellipsis)
                     if (suggestion != null) {
-                        Text("Suggested: ${suggestion.profileName} · ${suggestion.category}",
-                            style = MaterialTheme.typography.labelSmall, color = Color(0xFF946B16),
-                            maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("Suggested: ${suggestion.profileName} · ${suggestion.category}",
+                                modifier = Modifier.weight(1f),
+                                style = MaterialTheme.typography.labelSmall, color = Color(0xFF946B16),
+                                maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            TextButton(onClick = onApplySuggestion, contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)) {
+                                Text("Apply", fontSize = 11.sp)
+                            }
+                        }
                     }
                 }
                 TextButton(
