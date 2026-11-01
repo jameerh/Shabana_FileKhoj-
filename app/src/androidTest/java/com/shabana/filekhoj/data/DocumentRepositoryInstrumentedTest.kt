@@ -92,15 +92,16 @@ class DocumentRepositoryInstrumentedTest {
             )
             assertEquals(1, result.imported)
             val row = dao.findBySourceUri(sourceUri.toString())
-            assertTrue("Imported encrypted PDF should have a library row.", row != null)
-            row!!
+                ?: throw AssertionError("Imported encrypted PDF should have a library row.")
             documentId = row.id
-            managedDerivative = row.managedPath?.let(::File)
+            val derivativeFile = row.managedPath?.let(::File)
+                ?: throw AssertionError("Encrypted source should have a decrypted managed copy.")
+            managedDerivative = derivativeFile
             assertTrue("Encrypted source should be represented by a decrypted managed copy.", row.isStoredDecrypted)
             assertEquals(DocumentEntity.SIGNATURE_STATUS_UNKNOWN, row.signatureStatus)
             assertEquals(0, row.signatureCount)
-            assertTrue("Managed derivative must exist.", managedDerivative?.isFile == true)
-            PDDocument.load(managedDerivative).use { derivative ->
+            assertTrue("Managed derivative must exist.", derivativeFile.isFile)
+            PDDocument.load(derivativeFile).use { derivative ->
                 assertFalse("The managed derivative should no longer be encrypted.", derivative.isEncrypted)
             }
         } finally {
