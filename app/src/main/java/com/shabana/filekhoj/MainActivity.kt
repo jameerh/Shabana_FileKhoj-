@@ -1942,7 +1942,9 @@ private fun DocumentRow(
                     style = MaterialTheme.typography.bodySmall, color = Color(0xFF66766D))
                 Text(if (document.isFavourite) "★ Favourite • ${document.indexStatus}" else "Index: ${document.indexStatus}",
                     style = MaterialTheme.typography.labelSmall, color = Color(0xFF496354))
-                val signatureLabel = when (document.signatureStatus) {
+                val signatureLabel = (if (document.isStoredDecrypted) {
+                    "Original PDF signature (unlocked copy is not independently signed): "
+                } else "") + when (document.signatureStatus) {
                     DocumentEntity.SIGNATURE_STATUS_VERIFIED ->
                         "✓ Verified by Shabana Multi Service Verifier Tool • certificate chain trusted; revocation not checked"
                     DocumentEntity.SIGNATURE_STATUS_UNTRUSTED ->
@@ -1977,7 +1979,7 @@ private fun DocumentRow(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = when (document.signatureStatus) {
+                        text = (if (document.isStoredDecrypted) "Original: " else "") + when (document.signatureStatus) {
                             DocumentEntity.SIGNATURE_STATUS_VERIFIED -> "✓ Signature valid"
                             DocumentEntity.SIGNATURE_STATUS_EXPIRED -> "✓ Signature cryptographically valid"
                             DocumentEntity.SIGNATURE_STATUS_UNSIGNED -> "○ No digital signature"
