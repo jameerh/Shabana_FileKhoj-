@@ -71,11 +71,17 @@ class BackupRestoreManager(context: Context) {
             zip.write(manifest.toString().toByteArray(Charsets.UTF_8))
             zip.closeEntry()
         }
+        require(destination.length() <= BackupArchiveIO.MAX_ARCHIVE_BYTES) {
+            "Backup archive exceeds the allowed file size."
+        }
         return BackupResult(documents.size, bytes, destination.length())
     }
 
     suspend fun restoreBackup(source: File): RestoreResult {
         require(source.isFile && source.length() > 0L) { "Backup archive is empty or missing." }
+        require(source.length() <= BackupArchiveIO.MAX_ARCHIVE_BYTES) {
+            "Backup archive exceeds the allowed file size."
+        }
         val stagingDir = File(app.cacheDir, "filekhoj-restore-${UUID.randomUUID()}")
         check(stagingDir.mkdirs()) { "Could not create private restore staging directory." }
         val stagedEntries = linkedMapOf<String, File>()
