@@ -75,7 +75,8 @@ class DocumentIndexWorker(
                 val indexStatus = IndexQualityPolicy.pdfIndexStatus(
                     extracted.text,
                     extracted.usablePages,
-                    extracted.totalPages
+                    extracted.totalPages,
+                    extracted.processedPages
                 )
                 if (indexStatus == DocumentEntity.INDEX_STATUS_OCR_REQUIRED) {
                     dao.clearExtractedContent(id, indexStatus)
@@ -172,7 +173,7 @@ class DocumentIndexWorker(
                     }
                 }
             }
-            return ExtractedPdf(text.toString(), totalPages, usablePages)
+            return ExtractedPdf(text.toString(), totalPages, usablePages, pagesToProcess)
         }
     }
 
@@ -226,7 +227,12 @@ class DocumentIndexWorker(
         return output.toString()
     }
 
-    private data class ExtractedPdf(val text: String, val totalPages: Int, val usablePages: Int)
+    private data class ExtractedPdf(
+        val text: String,
+        val totalPages: Int,
+        val usablePages: Int,
+        val processedPages: Int
+    )
 
     companion object {
         const val KEY_DOCUMENT_ID = "document_id"
