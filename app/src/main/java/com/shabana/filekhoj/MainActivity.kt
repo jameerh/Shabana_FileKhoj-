@@ -1921,10 +1921,13 @@ private fun DocumentRow(
                 if (bitmap != null) {
                     Image(bitmap = bitmap!!.asImageBitmap(),
                         contentDescription = "Preview of ${document.displayName}",
-                        modifier = Modifier.fillMaxWidth().height(previewHeight),
+                        modifier = Modifier.fillMaxWidth().height(previewHeight).clickable(onClick = onClick),
                         contentScale = ContentScale.Fit)
                 } else {
-                    Box(Modifier.fillMaxWidth().height(previewHeight), contentAlignment = Alignment.Center) {
+                    Box(
+                        Modifier.fillMaxWidth().height(previewHeight).clickable(onClick = onClick),
+                        contentAlignment = Alignment.Center
+                    ) {
                         Text(if (isPdf) "PDF • first-page preview unavailable" else "Preview unavailable",
                             style = MaterialTheme.typography.bodySmall, color = Color(0xFF78867E))
                     }
