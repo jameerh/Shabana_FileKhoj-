@@ -496,6 +496,7 @@ class MainActivity : ComponentActivity() {
                 onStatus = { importStatus.value = it }
             )
         }
+        handleIncomingShare(intent)
     }
 
     private fun connectGoogleDrive() {
@@ -606,6 +607,102 @@ class MainActivity : ComponentActivity() {
             onComplete(false, message)
             Toast.makeText(this, message, Toast.LENGTH_LONG).show()
         }
+    }
+
+
+    private fun activeWorkspaceDestinationId(): Long {
+        val workspacePrefs = getSharedPreferences("filekhoj_document_profiles", Context.MODE_PRIVATE)
+        val active = workspacePrefs.getLong("active_profile_id", 1L)
+        return if (active > 0L) active else workspacePrefs.getLong("last_import_profile_id", 1L)
+    }
+
+    private fun handleIncomingShare(sharedIntent: Intent?) {
+        if (sharedIntent == null || sharedIntent.action !in setOf(Intent.ACTION_SEND, Intent.ACTION_SEND_MULTIPLE)) return
+        val sharedUris = linkedSetOf<Uri>()
+        if (sharedIntent.action == Intent.ACTION_SEND_MULTIPLE) {
+            @Suppress("DEPRECATION")
+            sharedIntent.getParcelableArrayListExtra<Uri>(Intent.EXTRA_STREAM)?.let(sharedUris::addAll)
+        } else {
+            @Suppress("DEPRECATION")
+            (sharedIntent.getParcelableExtra(Intent.EXTRA_STREAM) as? Uri)?.let(sharedUris::add)
+        }
+        sharedIntent.clipData?.let { clip ->
+            for (index in 0 until clip.itemCount) clip.getItemAt(index).uri?.let(sharedUris::add)
+        }
+        if (sharedUris.isEmpty()) return
+        lifecycleScope.launch {
+            try {
+                repository.seedDefaultProfilesIfNeeded()
+                importStatus.value = "Importing ${sharedUris.size} shared document(s) into FileKhoj…"
+                val result = withContext(Dispatchers.IO) {
+                    repository.importDocuments(
+                        sharedUris.toList(),
+                        profileId = activeWorkspaceDestinationId(),
+                        copyToManagedStorage = true
+                    )
+                }
+                passwordQueue.value = (passwordQueue.value + result.passwordRequiredUris).distinctBy { it.toString() }
+                importStatus.value = "Shared import complete: ${result.imported} imported, ${result.alreadyPresent} already present, ${result.failed} failed. Shared files are copied into FileKhoj storage."
+            } catch (error: Exception) {
+                importStatus.value = "Shared import failed: ${error.message ?: error.javaClass.simpleName}"
+            } finally {
+                setIntent(Intent(this@MainActivity, MainActivity::class.java))
+            }
+        }
+    }
+
+    private fun importableMime(mime: String, name: String): Boolean {
+        val normalizedMime = mime.lowercase(Locale.ROOT)
+        val extension = name.substringAfterLast('.', "").lowercase(Locale.ROOT)
+        return normalizedMime == "application/pdf" ||
+            normalizedMime.startsWith("image/") ||
+            normalizedMime == "text/plain" ||
+            normalizedMime.contains("word") ||
+            normalizedMime.contains("spreadsheet") ||
+            normalizedMime.contains("presentation") ||
+            normalizedMime.contains("officedocument") ||
+            extension in setOf("pdf", "jpg", "jpeg", "png", "webp", "heic", "txt", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "rtf")
+    }
+
+    private fun collectImportableUris(treeUri: Uri): List<Uri> {
+        val results = linkedSetOf<Uri>()
+        val visited = mutableSetOf<String>()
+        fun walk(parentId: String, depth: Int) {
+            if (depth > 12 || results.size >= MAX_FOLDER_IMPORT_FILES || !visited.add(parentId)) return
+            val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, parentId)
+            contentResolver.query(
+                childrenUri,
+                arrayOf(
+                    DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+                    DocumentsContract.Document.COLUMN_MIME_TYPE,
+                    DocumentsContract.Document.COLUMN_DISPLAY_NAME
+                ),
+                null, null, null
+            )?.use { cursor ->
+                val idColumn = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_DOCUMENT_ID)
+                val mimeColumn = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_MIME_TYPE)
+                val nameColumn = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
+                while (cursor.moveToNext() && results.size < MAX_FOLDER_IMPORT_FILES) {
+                    if (idColumn < 0 || mimeColumn < 0) continue
+                    val childId = cursor.getString(idColumn) ?: continue
+                    val mime = cursor.getString(mimeColumn).orEmpty()
+                    val name = if (nameColumn >= 0) cursor.getString(nameColumn).orEmpty() else childId
+                    if (mime == DocumentsContract.Document.MIME_TYPE_DIR) {
+                        walk(childId, depth + 1)
+                    } else if (importableMime(mime, name)) {
+                        results += DocumentsContract.buildDocumentUriUsingTree(treeUri, childId)
+                    }
+                }
+            }
+        }
+        walk(DocumentsContract.getTreeDocumentId(treeUri), 0)
+        return results.toList()
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleIncomingShare(intent)
     }
 
     private fun uniqueExportName(treeUri: Uri, requestedName: String): String {
