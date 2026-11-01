@@ -204,15 +204,20 @@ class BackupRestoreManager(context: Context) {
                     workIds += id
                 }
             }
+            var indexingQueueFailures = 0
             workIds.forEach { id ->
-                val request = OneTimeWorkRequestBuilder<DocumentIndexWorker>()
-                    .setInputData(workDataOf(DocumentIndexWorker.KEY_DOCUMENT_ID to id))
-                    .build()
-                WorkManager.getInstance(app).enqueueUniqueWork(
-                    "filekhoj-index-$id", ExistingWorkPolicy.KEEP, request
-                )
+                runCatching {
+                    val request = OneTimeWorkRequestBuilder<DocumentIndexWorker>()
+                        .setInputData(workDataOf(DocumentIndexWorker.KEY_DOCUMENT_ID to id))
+                        .build()
+                    WorkManager.getInstance(app).enqueueUniqueWork(
+                        "filekhoj-index-$id", ExistingWorkPolicy.KEEP, request
+                    )
+                }.onFailure {
+                    indexingQueueFailures++
+                }
             }
-            return RestoreResult(restored, skipped, restoredBytes)
+            return RestoreResult(restored, skipped, restoredBytes, indexingQueueFailures)
         } catch (error: Exception) {
             // If validation or the transactional database insert fails, do not leave staged copies behind.
             if (!databaseCommitted) finalFiles.forEach { it.delete() }
@@ -293,7 +298,12 @@ class BackupRestoreManager(context: Context) {
     }
 
     data class BackupResult(val documentCount: Int, val documentBytes: Long, val archiveBytes: Long)
-    data class RestoreResult(val restored: Int, val skipped: Int, val restoredBytes: Long)
+    data class RestoreResult(
+        val restored: Int,
+        val skipped: Int,
+        val restoredBytes: Long,
+        val indexingQueueFailures: Int = 0
+    )
 
     companion object {
         const val FORMAT = "SHABANA_FILEKHOJ_BACKUP"
