@@ -6,6 +6,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.work.WorkManager
 import java.io.File
 import java.util.UUID
+import org.json.JSONObject
 import java.util.zip.ZipEntry
 import java.util.zip.ZipInputStream
 import java.util.zip.ZipOutputStream
@@ -62,6 +63,47 @@ class BackupRestoreInstrumentedTest {
     }
 
     @Test
+    fun versionOneBackupWithoutHashesStillRestores() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val dao = DocumentDatabase.getInstance(context).documentDao()
+        val manager = BackupRestoreManager(context)
+        val token = UUID.randomUUID().toString()
+        val source = File(context.filesDir, "documents/backup-legacy-$token.txt")
+        val archive = File(context.cacheDir, "backup-legacy-$token.zip")
+        val legacy = File(context.cacheDir, "backup-legacy-v1-$token.zip")
+        val beforeIds = dao.getAllForBackup().map { it.id }.toSet()
+        try {
+            check(source.parentFile?.mkdirs() == true || source.parentFile?.isDirectory == true)
+            source.writeText("Legacy FileKhoj backup payload")
+            val sourceId = dao.insert(
+                DocumentEntity(
+                    displayName = "backup-legacy-$token.txt",
+                    mimeType = "text/plain",
+                    sizeBytes = source.length(),
+                    sourceUri = "content://filekhoj-test/$token",
+                    dateAdded = System.currentTimeMillis(),
+                    sourceLastModified = null,
+                    managedPath = source.absolutePath
+                )
+            )
+            assertTrue(sourceId > 0L)
+            manager.createBackup(archive)
+            rewriteAsLegacyVersionOne(archive, legacy)
+
+            val result = manager.restoreBackup(legacy)
+            assertEquals(1, result.restored)
+            val added = dao.getAllForBackup().filter { it.id !in beforeIds && it.id != sourceId }
+            assertEquals(1, added.size)
+            assertEquals("Legacy FileKhoj backup payload", File(added.single().managedPath!!).readText())
+        } finally {
+            cleanup(context, dao, beforeIds)
+            archive.delete()
+            legacy.delete()
+            source.delete()
+        }
+    }
+
+    @Test
     fun tamperedPayloadIsRejectedBeforeAnyRestoreRowsAreCommitted() = runBlocking {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val dao = DocumentDatabase.getInstance(context).documentDao()
@@ -98,6 +140,34 @@ class BackupRestoreInstrumentedTest {
             archive.delete()
             tampered.delete()
             source.delete()
+        }
+    }
+
+    private fun rewriteAsLegacyVersionOne(source: File, destination: File) {
+        ZipInputStream(source.inputStream().buffered()).use { input ->
+            ZipOutputStream(destination.outputStream().buffered()).use { output ->
+                while (true) {
+                    val entry = input.nextEntry ?: break
+                    output.putNextEntry(ZipEntry(entry.name))
+                    var bytes = input.readBytes()
+                    if (entry.name == BackupRestoreManager.MANIFEST) {
+                        val manifest = JSONObject(String(bytes, Charsets.UTF_8))
+                        manifest.put("version", 1)
+                        val rows = manifest.getJSONArray("documents")
+                        for (index in 0 until rows.length()) {
+                            val row = rows.getJSONObject(index)
+                            row.remove("payloadSha256")
+                            row.remove("payloadSizeBytes")
+                            row.remove("isEncryptedSource")
+                            row.remove("isStoredDecrypted")
+                        }
+                        bytes = manifest.toString().toByteArray(Charsets.UTF_8)
+                    }
+                    output.write(bytes)
+                    output.closeEntry()
+                    input.closeEntry()
+                }
+            }
         }
     }
 
