@@ -1,12 +1,19 @@
 package com.shabana.filekhoj.data
 
 import android.content.Context
+import androidx.core.content.FileProvider
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
+import com.tom_roush.pdfbox.pdmodel.PDDocument
+import com.tom_roush.pdfbox.pdmodel.PDPage
+import com.tom_roush.pdfbox.pdmodel.encryption.AccessPermission
+import com.tom_roush.pdfbox.pdmodel.encryption.StandardProtectionPolicy
 import java.io.File
 import java.util.UUID
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -49,6 +56,61 @@ class DocumentRepositoryInstrumentedTest {
         } finally {
             if (id > 0L) dao.deleteDocumentCompletely(id)
             file.delete()
+        }
+    }
+
+    @Test
+    fun decryptedEncryptedPdfDoesNotInheritSourceSignatureVerdict() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        PDFBoxResourceLoader.init(context)
+        val dao = DocumentDatabase.getInstance(context).documentDao()
+        val repository = DocumentRepository(context)
+        val token = UUID.randomUUID().toString()
+        val source = File(context.filesDir, "documents/encrypted-import-$token.pdf")
+        var managedDerivative: File? = null
+        var documentId = -1L
+        try {
+            check(source.parentFile?.mkdirs() == true || source.parentFile?.isDirectory == true)
+            PDDocument().use { pdf ->
+                pdf.addPage(PDPage())
+                val policy = StandardProtectionPolicy(
+                    "owner-password-$token",
+                    "user-password-$token",
+                    AccessPermission()
+                ).apply { encryptionKeyLength = 128 }
+                pdf.protect(policy)
+                pdf.save(source)
+            }
+            val sourceUri = FileProvider.getUriForFile(
+                context,
+                "${context.packageName}.fileprovider",
+                source
+            )
+            val result = repository.importDocuments(
+                listOf(sourceUri),
+                mapOf(sourceUri.toString() to "user-password-$token")
+            )
+            assertEquals(1, result.imported)
+            val row = dao.findBySourceUri(sourceUri.toString())
+            assertTrue("Imported encrypted PDF should have a library row.", row != null)
+            row!!
+            documentId = row.id
+            managedDerivative = row.managedPath?.let(::File)
+            assertTrue("Encrypted source should be represented by a decrypted managed copy.", row.isStoredDecrypted)
+            assertEquals(DocumentEntity.SIGNATURE_STATUS_UNKNOWN, row.signatureStatus)
+            assertEquals(0, row.signatureCount)
+            assertTrue("Managed derivative must exist.", managedDerivative?.isFile == true)
+            PDDocument.load(managedDerivative).use { derivative ->
+                assertFalse("The managed derivative should no longer be encrypted.", derivative.isEncrypted)
+            }
+        } finally {
+            if (documentId > 0L) {
+                androidx.work.WorkManager.getInstance(context)
+                    .cancelUniqueWork("filekhoj-index-$documentId")
+                dao.deleteDocumentCompletely(documentId)
+            }
+            managedDerivative?.delete()
+            source.delete()
         }
     }
 
