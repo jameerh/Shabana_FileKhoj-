@@ -917,7 +917,12 @@ private fun FileKhojApp(
             ?.categoryOverride ?: document.category
 
     val categoryOptions = remember(documents, workspaceAssignments, activeWorkspaceId) {
-        listOf("All categories") + documents.mapNotNull { categoryFor(it)?.trim()?.takeIf(String::isNotBlank) }
+        val scopedDocuments = documents.filter { document ->
+            activeWorkspaceId == null || workspaceAssignments.any {
+                it.documentId == document.id && it.profileId == activeWorkspaceId
+            }
+        }
+        listOf("All categories") + scopedDocuments.mapNotNull { categoryFor(it)?.trim()?.takeIf(String::isNotBlank) }
             .distinct().sorted()
     }
     val filteredDocuments = remember(
@@ -1152,6 +1157,8 @@ private fun FileKhojApp(
                                 selected = activeWorkspaceId == null,
                                 onClick = {
                                     activeWorkspaceId = null
+                                    selectedCategory = "All categories"
+                                    selectedIds = emptySet()
                                     workspacePrefs.edit().putLong("active_profile_id", 0L).apply()
                                 },
                                 label = { Text("All profiles") }
@@ -1161,6 +1168,8 @@ private fun FileKhojApp(
                                     selected = activeWorkspaceId == profile.id,
                                     onClick = {
                                         activeWorkspaceId = profile.id
+                                        selectedCategory = "All categories"
+                                        selectedIds = emptySet()
                                         workspacePrefs.edit().putLong("active_profile_id", profile.id)
                                             .putLong("last_import_profile_id", profile.id).apply()
                                     },
