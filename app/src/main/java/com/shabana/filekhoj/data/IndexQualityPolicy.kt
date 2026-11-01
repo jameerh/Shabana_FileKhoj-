@@ -25,6 +25,16 @@ internal object IndexQualityPolicy {
     fun hasEnoughPageCoverage(usablePages: Int, totalPages: Int): Boolean =
         totalPages > 0 && usablePages.toFloat() / totalPages >= MIN_QUALITY
 
+    /**
+     * Keeps usable extracted text searchable when a long PDF exceeds the OCR page budget,
+     * while making incomplete coverage explicit instead of silently discarding all text.
+     */
+    fun pdfIndexStatus(text: String, usablePages: Int, totalPages: Int): String = when {
+        text.isBlank() || usablePages <= 0 || totalPages <= 0 -> DocumentEntity.INDEX_STATUS_OCR_REQUIRED
+        hasEnoughPageCoverage(usablePages, totalPages) -> DocumentEntity.INDEX_STATUS_INDEXED
+        else -> DocumentEntity.INDEX_STATUS_PARTIALLY_INDEXED
+    }
+
     private fun isContentCharacter(char: Char): Boolean {
         if (char.isLetterOrDigit()) return true
         return when (Character.getType(char)) {
