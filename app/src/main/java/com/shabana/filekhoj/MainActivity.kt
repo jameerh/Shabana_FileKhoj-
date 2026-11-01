@@ -911,8 +911,13 @@ private fun FileKhojApp(
         }
     }
 
-    val categoryOptions = remember(documents) {
-        listOf("All categories") + documents.mapNotNull { it.category?.trim()?.takeIf(String::isNotBlank) }
+    fun categoryFor(document: DocumentEntity): String? =
+        if (activeWorkspaceId == null) document.category
+        else workspaceAssignments.firstOrNull { it.documentId == document.id && it.profileId == activeWorkspaceId }
+            ?.categoryOverride ?: document.category
+
+    val categoryOptions = remember(documents, workspaceAssignments, activeWorkspaceId) {
+        listOf("All categories") + documents.mapNotNull { categoryFor(it)?.trim()?.takeIf(String::isNotBlank) }
             .distinct().sorted()
     }
     val filteredDocuments = remember(
@@ -952,7 +957,7 @@ private fun FileKhojApp(
             }
             matchesWorkspace && matchesQuery && matchesType && matchesDate &&
                 (!favouritesOnly || document.isFavourite) &&
-                (selectedCategory == "All categories" || document.category == selectedCategory) &&
+                (selectedCategory == "All categories" || categoryFor(document) == selectedCategory) &&
                 matchesSignature
         }
     }
@@ -1719,8 +1724,13 @@ private fun FileKhojApp(
                     val document = editingDocument ?: return@TextButton
                     scope.launch {
                         try {
-                            repository.updateUserMetadata(document.id, editName, editCategory)
-                            onStatus("Document details updated.")
+                            if (activeWorkspaceId == null) {
+                                repository.updateUserMetadata(document.id, editName, editCategory)
+                            } else {
+                                repository.updateUserMetadata(document.id, editName, document.category)
+                                repository.setProfileCategory(document.id, activeWorkspaceId, editCategory)
+                            }
+                            onStatus("Document details updated for the selected workspace.")
                         } catch (_: IllegalArgumentException) {
                             onStatus("Display name cannot be empty.")
                         }
