@@ -104,6 +104,48 @@ class BackupRestoreInstrumentedTest {
     }
 
     @Test
+    fun forgedVerifiedSignatureMetadataIsResetOnRestore() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val dao = DocumentDatabase.getInstance(context).documentDao()
+        val manager = BackupRestoreManager(context)
+        val token = UUID.randomUUID().toString()
+        val source = File(context.filesDir, "documents/backup-signature-$token.txt")
+        val archive = File(context.cacheDir, "backup-signature-$token.zip")
+        val forged = File(context.cacheDir, "backup-signature-forged-$token.zip")
+        val beforeIds = dao.getAllForBackup().map { it.id }.toSet()
+        try {
+            check(source.parentFile?.mkdirs() == true || source.parentFile?.isDirectory == true)
+            source.writeText("Signature status must never be trusted from unsigned backup metadata")
+            val sourceId = dao.insert(
+                DocumentEntity(
+                    displayName = "backup-signature-$token.txt",
+                    mimeType = "text/plain",
+                    sizeBytes = source.length(),
+                    sourceUri = "content://filekhoj-test/$token",
+                    dateAdded = System.currentTimeMillis(),
+                    sourceLastModified = null,
+                    managedPath = source.absolutePath,
+                    signatureStatus = DocumentEntity.SIGNATURE_STATUS_UNSIGNED
+                )
+            )
+            assertTrue(sourceId > 0L)
+            manager.createBackup(archive)
+            rewriteWithForgedSignatureStatus(archive, forged)
+
+            val result = manager.restoreBackup(forged)
+            assertEquals(1, result.restored)
+            val restored = dao.getAllForBackup().single { it.id !in beforeIds && it.id != sourceId }
+            assertEquals(DocumentEntity.SIGNATURE_STATUS_UNKNOWN, restored.signatureStatus)
+            assertEquals(0, restored.signatureCount)
+        } finally {
+            cleanup(context, dao, beforeIds)
+            archive.delete()
+            forged.delete()
+            source.delete()
+        }
+    }
+
+    @Test
     fun tamperedPayloadIsRejectedBeforeAnyRestoreRowsAreCommitted() = runBlocking {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val dao = DocumentDatabase.getInstance(context).documentDao()
@@ -160,6 +202,31 @@ class BackupRestoreInstrumentedTest {
                             row.remove("payloadSizeBytes")
                             row.remove("isEncryptedSource")
                             row.remove("isStoredDecrypted")
+                        }
+                        bytes = manifest.toString().toByteArray(Charsets.UTF_8)
+                    }
+                    output.write(bytes)
+                    output.closeEntry()
+                    input.closeEntry()
+                }
+            }
+        }
+    }
+
+    private fun rewriteWithForgedSignatureStatus(source: File, destination: File) {
+        ZipInputStream(source.inputStream().buffered()).use { input ->
+            ZipOutputStream(destination.outputStream().buffered()).use { output ->
+                while (true) {
+                    val entry = input.nextEntry ?: break
+                    output.putNextEntry(ZipEntry(entry.name))
+                    var bytes = input.readBytes()
+                    if (entry.name == BackupRestoreManager.MANIFEST) {
+                        val manifest = JSONObject(String(bytes, Charsets.UTF_8))
+                        val rows = manifest.getJSONArray("documents")
+                        for (index in 0 until rows.length()) {
+                            rows.getJSONObject(index)
+                                .put("signatureStatus", DocumentEntity.SIGNATURE_STATUS_VERIFIED)
+                                .put("signatureCount", 1)
                         }
                         bytes = manifest.toString().toByteArray(Charsets.UTF_8)
                     }
