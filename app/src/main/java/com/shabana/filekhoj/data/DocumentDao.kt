@@ -38,6 +38,27 @@ interface DocumentDao {
     @Query("SELECT * FROM document_profile_assignments")
     suspend fun getAllProfileAssignments(): List<DocumentProfileAssignmentEntity>
 
+    @Query("SELECT * FROM document_reminders ORDER BY dueAt ASC")
+    fun observeReminders(): Flow<List<DocumentReminderEntity>>
+
+    @Query("SELECT * FROM document_reminders")
+    suspend fun getAllReminders(): List<DocumentReminderEntity>
+
+    @Query("SELECT * FROM document_reminders WHERE documentId = :documentId LIMIT 1")
+    suspend fun getReminder(documentId: Long): DocumentReminderEntity?
+
+    @Query("SELECT * FROM document_reminders WHERE enabled = 1 AND dueAt <= :horizon AND (notifiedAt IS NULL OR notifiedAt < dueAt)")
+    suspend fun getDueReminders(horizon: Long): List<DocumentReminderEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertReminder(reminder: DocumentReminderEntity)
+
+    @Query("UPDATE document_reminders SET notifiedAt = :notifiedAt WHERE documentId = :documentId")
+    suspend fun markReminderNotified(documentId: Long, notifiedAt: Long)
+
+    @Query("DELETE FROM document_reminders WHERE documentId = :documentId")
+    suspend fun deleteReminder(documentId: Long)
+
     @Query("SELECT profileId FROM document_profile_assignments WHERE documentId = :documentId")
     suspend fun getProfileIdsForDocument(documentId: Long): List<Long>
 
