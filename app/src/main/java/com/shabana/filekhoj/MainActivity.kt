@@ -1595,8 +1595,6 @@ private fun FileKhojApp(
                     Text("Backup & Restore", style = MaterialTheme.typography.titleLarge)
                     androidx.compose.material3.IconButton(
                         onClick = { showBackupDialog = false },
-                        modifier = Modifier.size(40.dp)
-                    ,
                         modifier = Modifier
                             .size(48.dp)
                             .semantics { contentDescription = "Close Backup and Restore dialog" }
