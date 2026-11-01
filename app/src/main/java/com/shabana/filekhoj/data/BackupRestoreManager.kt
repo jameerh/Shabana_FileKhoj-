@@ -237,7 +237,7 @@ class BackupRestoreManager(context: Context) {
                     dateAdded = row.optLong("dateAdded", System.currentTimeMillis()),
                     sourceLastModified = if (row.isNull("sourceLastModified")) null else row.optLong("sourceLastModified"),
                     category = if (row.isNull("category")) null else row.optString("category"),
-                    contentHash = if (row.isNull("contentHash")) null else row.optString("contentHash"),
+                    contentHash = if (storedDecrypted || row.isNull("contentHash")) null else row.optString("contentHash"),
                     // Archive manifests are unsigned and user-editable. Never trust a restored
                     // signature verdict from metadata; it must be re-evaluated against the restored bytes.
                     signatureStatus = if (restoredIsPdf) {
