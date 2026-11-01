@@ -360,6 +360,7 @@ class BackupRestoreInstrumentedTest {
                     if (entry.name == BackupRestoreManager.MANIFEST) {
                         val manifest = JSONObject(String(bytes, Charsets.UTF_8))
                         manifest.put("version", 1)
+                        manifest.remove("profiles")
                         val rows = manifest.getJSONArray("documents")
                         for (index in 0 until rows.length()) {
                             val row = rows.getJSONObject(index)
@@ -367,6 +368,8 @@ class BackupRestoreInstrumentedTest {
                             row.remove("payloadSizeBytes")
                             row.remove("isEncryptedSource")
                             row.remove("isStoredDecrypted")
+                            row.remove("profileAssignments")
+                            row.remove("reminder")
                         }
                         bytes = manifest.toString().toByteArray(Charsets.UTF_8)
                     }
