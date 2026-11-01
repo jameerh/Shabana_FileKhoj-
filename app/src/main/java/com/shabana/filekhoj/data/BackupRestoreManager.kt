@@ -34,6 +34,7 @@ class BackupRestoreManager(context: Context) {
         val profiles = dao.getProfiles()
         val profilesById = profiles.associateBy { it.id }
         val assignmentsByDocument = dao.getAllProfileAssignments().groupBy { it.documentId }
+        val remindersByDocument = dao.getAllReminders().associateBy { it.documentId }
         val manifest = JSONObject()
             .put("format", FORMAT)
             .put("version", VERSION)
@@ -84,6 +85,12 @@ class BackupRestoreManager(context: Context) {
                                 .put("categoryOverride", assignment.categoryOverride ?: JSONObject.NULL))
                         }
                     })
+                    .put("reminder", remindersByDocument[doc.id]?.let { reminder ->
+                        JSONObject()
+                            .put("label", reminder.label)
+                            .put("dueAt", reminder.dueAt)
+                            .put("enabled", reminder.enabled)
+                    } ?: JSONObject.NULL)
                 )
             }
             manifest.put("documents", rows)
@@ -157,6 +164,7 @@ class BackupRestoreManager(context: Context) {
             val pendingDocuments = mutableListOf<DocumentEntity>()
             val pendingFiles = mutableListOf<File>()
             val pendingAssignmentNames = mutableListOf<List<Pair<String, String?>>>()
+            val pendingReminders = mutableListOf<Pair<String, Long>?>()
             var expectedBytes = 0L
 
             for (i in 0 until rows.length()) {
@@ -257,6 +265,13 @@ class BackupRestoreManager(context: Context) {
                     }
                 }
                 pendingAssignmentNames += rowAssignments.distinctBy { it.first.lowercase(java.util.Locale.ROOT) }
+                val reminderObject = row.optJSONObject("reminder")
+                val reminderLabel = reminderObject?.optString("label")?.trim().orEmpty()
+                val reminderDueAt = reminderObject?.optLong("dueAt", -1L) ?: -1L
+                pendingReminders += if (reminderObject != null && reminderLabel.isNotBlank() &&
+                    reminderLabel.length <= MAX_REMINDER_LABEL_LENGTH && reminderDueAt > 0L &&
+                    reminderObject.optBoolean("enabled", true)
+                ) reminderLabel to reminderDueAt else null
             }
             require(referencedEntries == stagedEntries.keys) {
                 "Backup contains document payloads not referenced by its manifest."
@@ -311,7 +326,7 @@ class BackupRestoreManager(context: Context) {
 
             // All payloads and workspace mappings are committed together in one Room transaction.
             val insertedIds = dao.insertDocumentsWithProfileAssignmentsAtomically(
-                pendingDocuments, assignmentsByIndex, defaultProfileId
+                pendingDocuments, assignmentsByIndex, defaultProfileId, pendingReminders
             )
             databaseCommitted = true
             var restored = 0
@@ -438,6 +453,7 @@ class BackupRestoreManager(context: Context) {
         private const val MAX_DOCUMENTS = 10_000
         private const val MAX_DISPLAY_NAME_LENGTH = 512
         private const val MAX_PROFILE_NAME_LENGTH = 40
+        private const val MAX_REMINDER_LABEL_LENGTH = 80
         private const val MAX_MANIFEST_BYTES = 16 * 1024 * 1024
         private const val MAX_DOCUMENT_BYTES = 512L * 1024L * 1024L
         private const val MAX_TOTAL_DOCUMENT_BYTES = 1024L * 1024L * 1024L
