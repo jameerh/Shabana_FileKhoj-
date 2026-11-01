@@ -252,7 +252,7 @@ class BackupRestoreManager(context: Context) {
                     isFavourite = row.optBoolean("isFavourite", false)
                 )
                 val rowAssignments = mutableListOf<Pair<String, String?>>()
-                val assignments = row.optJSONArray("profileAssignments")
+                val assignments = if (archiveVersion >= 3) row.optJSONArray("profileAssignments") else null
                 if (assignments != null) {
                     for (assignmentIndex in 0 until assignments.length()) {
                         val assignment = assignments.optJSONObject(assignmentIndex) ?: continue
@@ -265,7 +265,7 @@ class BackupRestoreManager(context: Context) {
                     }
                 }
                 pendingAssignmentNames += rowAssignments.distinctBy { it.first.lowercase(java.util.Locale.ROOT) }
-                val reminderObject = row.optJSONObject("reminder")
+                val reminderObject = if (archiveVersion >= 3) row.optJSONObject("reminder") else null
                 val reminderLabel = reminderObject?.optString("label")?.trim().orEmpty()
                 val reminderDueAt = reminderObject?.optLong("dueAt", -1L) ?: -1L
                 pendingReminders += if (reminderObject != null && reminderLabel.isNotBlank() &&
