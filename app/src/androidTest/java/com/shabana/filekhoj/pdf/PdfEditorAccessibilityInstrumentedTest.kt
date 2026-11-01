@@ -56,9 +56,9 @@ class PdfEditorAccessibilityInstrumentedTest {
                     false
                 }
             }
-            composeRule.onNodeWithContentDescription("Select source page 1").assertExists()
-            composeRule.onNodeWithContentDescription("Move page 1 up").assertExists()
-            composeRule.onNodeWithContentDescription("Move page 1 down").assertExists()
+            composeRule.onNodeWithContentDescription("Select source page 1").assertIsDisplayed()
+            composeRule.onNodeWithContentDescription("Move page 1 up").assertIsDisplayed()
+            composeRule.onNodeWithContentDescription("Move page 1 down").assertIsDisplayed()
         } finally {
             source.delete()
         }
