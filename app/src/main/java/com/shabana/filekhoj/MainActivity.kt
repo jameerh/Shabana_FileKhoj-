@@ -1312,6 +1312,7 @@ private fun FileKhojApp(
                                                 onStatus("Select one file to edit its name or category.")
                                             }
                                         }) { Text("✎ Edit") }
+                                        TextButton(onClick = { showMoveProfileDialog = true }) { Text("⇄ Move / assign") }
                                     }
                                     Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                                         horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -1384,7 +1385,8 @@ private fun FileKhojApp(
                                 },
                                 customColor = cardPrefs.getInt("color_${document.id}", 0xFFFFFFFF.toInt()),
                                 customLabels = cardPrefs.getString("labels_${document.id}", "").orEmpty()
-                                    .split("\u001F").filter(String::isNotBlank)
+                                    .split("\u001F").filter(String::isNotBlank),
+                                suggestion = DocumentProfileDefaults.suggest(document.displayName, document.mimeType)
                             )
                         }
                     }
@@ -1401,6 +1403,9 @@ private fun FileKhojApp(
                         DropdownMenuItem(text = { Text("Import files") },
                             onClick = { showImportMenu = false; onImportClick() },
                             leadingIcon = { Text("＋") })
+                        DropdownMenuItem(text = { Text("Import a folder (WhatsApp / device)") },
+                            onClick = { showImportMenu = false; onImportFolderClick() },
+                            leadingIcon = { Text("▣") })
                     }
                 }
                 }
@@ -2109,7 +2114,8 @@ private fun DocumentRow(
     onFavourite: () -> Unit,
     onCustomize: () -> Unit,
     customColor: Int,
-    customLabels: List<String>
+    customLabels: List<String>,
+    suggestion: ProfileSuggestion?
 ) {
     val isPdf = document.mimeType.contains("pdf", true)
     val isImage = document.mimeType.startsWith("image/")
@@ -2149,6 +2155,11 @@ private fun DocumentRow(
                     Text("${document.mimeType} • ${formatSize(document.sizeBytes)}",
                         style = MaterialTheme.typography.bodySmall, color = Color(0xFF66766D),
                         maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    if (suggestion != null) {
+                        Text("Suggested: ${suggestion.profileName} · ${suggestion.category}",
+                            style = MaterialTheme.typography.labelSmall, color = Color(0xFF946B16),
+                            maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
                 }
                 TextButton(
                     onClick = onFavourite,
