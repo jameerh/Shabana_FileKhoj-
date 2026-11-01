@@ -1,5 +1,7 @@
 package com.shabana.filekhoj
 
+import android.Manifest
+import android.app.DatePickerDialog
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.ClipData
@@ -104,12 +106,15 @@ import com.shabana.filekhoj.data.DocumentEntity
 import com.shabana.filekhoj.data.DocumentProfileEntity
 import com.shabana.filekhoj.data.DocumentProfileAssignmentEntity
 import com.shabana.filekhoj.data.DocumentProfileDefaults
+import com.shabana.filekhoj.data.DocumentReminderEntity
+import com.shabana.filekhoj.data.ExpiryReminderWorker
 import com.shabana.filekhoj.data.ProfileSuggestion
 import com.shabana.filekhoj.data.DocumentRepository
 import com.shabana.filekhoj.pdf.PdfEditorScreen
 import java.io.File
 import java.text.DateFormat
 import java.util.Date
+import java.util.Calendar
 import java.util.Locale
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -137,6 +142,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var backupExportLauncher: ActivityResultLauncher<String>
     private lateinit var backupRestoreLauncher: ActivityResultLauncher<Array<String>>
     private lateinit var driveSignInLauncher: ActivityResultLauncher<Intent>
+    private lateinit var notificationPermissionLauncher: ActivityResultLauncher<String>
     private var pendingBackupFile: File? = null
     private var pendingPdfExportFile: File? = null
     private var pendingBulkExportDocuments: List<DocumentEntity> = emptyList()
@@ -152,6 +158,11 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         repository = DocumentRepository(applicationContext)
+        ExpiryReminderWorker.schedule(applicationContext)
+        notificationPermissionLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            importStatus.value = if (granted) "Document reminders are enabled." else
+                "Notifications are disabled. Reminders remain saved and can be reviewed in FileKhoj."
+        }
         driveAccount.value = GoogleDriveBackupManager(applicationContext).signedInEmail()
         driveSignInLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
             if (result.resultCode == RESULT_OK) {
@@ -480,6 +491,11 @@ class MainActivity : ComponentActivity() {
                     ))
                 },
                 onImportFolderClick = { importFolderLauncher.launch(null) },
+                onRequestNotificationPermission = {
+                    if (android.os.Build.VERSION.SDK_INT >= 33 &&
+                        checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED
+                    ) notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                },
                 onOpenDocument = ::openDocument,
                 onPdfSaveRequest = ::launchPdfExport,
                 onSaveSelected = { selected ->
@@ -771,6 +787,7 @@ private fun FileKhojApp(
     onSearchSubmitted: (String) -> Unit,
     onImportClick: () -> Unit,
     onImportFolderClick: () -> Unit,
+    onRequestNotificationPermission: () -> Unit,
     onOpenDocument: (DocumentEntity) -> Unit,
     onPdfSaveRequest: (File, String, (Boolean, String?) -> Unit) -> Unit,
     driveAccount: String?,
