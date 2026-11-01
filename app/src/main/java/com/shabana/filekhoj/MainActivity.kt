@@ -93,6 +93,7 @@ import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import com.shabana.filekhoj.data.BackupRestoreManager
+import com.shabana.filekhoj.data.BackupArchiveIO
 import com.shabana.filekhoj.data.GoogleDriveBackupManager
 import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.auth.api.signin.GoogleSignInOptions
@@ -193,7 +194,9 @@ class MainActivity : ComponentActivity() {
                 try {
                     withContext(Dispatchers.IO) {
                         contentResolver.openInputStream(sourceUri)?.use { input ->
-                            temp.outputStream().buffered().use { input.copyTo(it) }
+                            temp.outputStream().buffered().use { output ->
+                                BackupArchiveIO.copyBounded(input, output)
+                            }
                         } ?: throw IllegalStateException("Could not read backup.")
                     }
                     val result = withContext(Dispatchers.IO) { BackupRestoreManager(applicationContext).restoreBackup(temp) }
