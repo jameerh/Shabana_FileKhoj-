@@ -18,7 +18,8 @@ data class ImportDocumentResult(
     val imported: Int,
     val alreadyPresent: Int,
     val failed: Int,
-    val passwordRequiredUris: List<Uri> = emptyList()
+    val passwordRequiredUris: List<Uri> = emptyList(),
+    val indexingQueueFailures: Int = 0
 )
 
 data class DeleteDocumentResult(val deleted: Int, val failed: Int)
@@ -75,6 +76,7 @@ class DocumentRepository(context: Context) {
         var imported = 0
         var alreadyPresent = 0
         var failed = 0
+        var indexingQueueFailures = 0
         val passwordRequired = mutableListOf<Uri>()
 
         uris.distinctBy { it.toString() }.forEach { uri ->
@@ -140,18 +142,25 @@ class DocumentRepository(context: Context) {
                     val indexRequest = OneTimeWorkRequestBuilder<DocumentIndexWorker>()
                         .setInputData(workDataOf(DocumentIndexWorker.KEY_DOCUMENT_ID to rowId))
                         .build()
-                    WorkManager.getInstance(appContext).enqueueUniqueWork(
-                        "filekhoj-index-$rowId",
-                        ExistingWorkPolicy.KEEP,
-                        indexRequest
-                    )
+                    val queued = runCatching {
+                        WorkManager.getInstance(appContext).enqueueUniqueWork(
+                            "filekhoj-index-$rowId",
+                            ExistingWorkPolicy.KEEP,
+                            indexRequest
+                        )
+                    }.isSuccess
+                    if (!queued) indexingQueueFailures++
                 }
             } catch (_: Exception) {
                 managedCopy?.delete()
                 failed++
             }
         }
-        ImportDocumentResult(imported, alreadyPresent, failed, passwordRequired.distinctBy { it.toString() })
+        ImportDocumentResult(
+            imported, alreadyPresent, failed,
+            passwordRequired.distinctBy { it.toString() },
+            indexingQueueFailures
+        )
     }
 
     /**
