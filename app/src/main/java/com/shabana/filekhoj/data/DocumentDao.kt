@@ -35,6 +35,9 @@ interface DocumentDao {
     @Query("SELECT * FROM document_profile_assignments")
     fun observeProfileAssignments(): Flow<List<DocumentProfileAssignmentEntity>>
 
+    @Query("SELECT * FROM document_profile_assignments")
+    suspend fun getAllProfileAssignments(): List<DocumentProfileAssignmentEntity>
+
     @Query("SELECT profileId FROM document_profile_assignments WHERE documentId = :documentId")
     suspend fun getProfileIdsForDocument(documentId: Long): List<Long>
 
@@ -130,7 +133,30 @@ interface DocumentDao {
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insert(document: DocumentEntity): Long
 
-    /** Inserts a restore batch in one Room transaction so partial restores cannot commit. */
+    /** Inserts a restore batch and its workspace memberships atomically. */
+    @Transaction
+    suspend fun insertDocumentsWithProfileAssignmentsAtomically(
+        documents: List<DocumentEntity>,
+        assignmentsByDocument: List<List<Pair<Long, String?>>>,
+        defaultProfileId: Long
+    ): List<Long> {
+        return documents.mapIndexed { index, document ->
+            val id = insert(document)
+            if (id > 0L) {
+                val requested = assignmentsByDocument.getOrNull(index).orEmpty()
+                val safeAssignments = if (requested.isEmpty()) listOf(defaultProfileId to document.category)
+                    else requested
+                insertProfileAssignments(
+                    safeAssignments.distinctBy { it.first }.map { (profileId, category) ->
+                        DocumentProfileAssignmentEntity(id, profileId, category)
+                    }
+                )
+            }
+            id
+        }
+    }
+
+    /** Kept for callers that restore only document rows. */
     @Transaction
     suspend fun insertDocumentsAtomically(documents: List<DocumentEntity>): List<Long> =
         documents.map { insert(it) }
