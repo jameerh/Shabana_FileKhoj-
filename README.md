@@ -50,7 +50,7 @@ The app requests only the `drive.file` scope. It creates and accesses its own ba
 - Gradle runtime JDK 21; application bytecode target Java 17
 - Minimum Android API 24
 
-See [docs/BUILDING.md](docs/BUILDING.md) for local setup.
+See [docs/BUILDING.md](docs/BUILDING.md) for local setup and [docs/QUALITY_AUDIT.md](docs/QUALITY_AUDIT.md) for the phased reliability/QA status.
 
 ## Quick start
 
@@ -71,9 +71,9 @@ See [docs/BUILDING.md](docs/BUILDING.md) for local setup.
 
 ## Implementation status and limitations
 
-The current source includes local document management, Room migrations, FTS4 indexing, background extraction, bundled offline Latin/Devanagari OCR dependencies, secure PDF import handling, PDF signature/CMS verification, local profile/WhatsApp registration and an initial PDF Editor for rotate/reorder/delete page operations. PDF editing has CI validation pending and still requires physical-device testing with representative PDFs.
+The project includes local document management, Room migrations, FTS4 indexing, background extraction, bundled offline Latin/Devanagari OCR dependencies, password-protected PDF handling, PDF signature/CMS verification, local profile/WhatsApp registration and a PDF Editor for rotate/reorder/delete page operations. Backup restore has bounded streaming, per-payload SHA-256 integrity checks for new archives, staging, and transactional database insertion. The signature UI distinguishes the original PDF from an unlocked derivative.
 
-Certificate revocation and trusted timestamp evaluation are not complete. A displayed signature status must not be interpreted as Adobe-equivalent trust validation. OCR/search quality depends on source quality and indexing completion. The profile registry is device-local and does not provide cross-device administration.
+Important limitations remain: backup ZIPs are not encrypted, SHA-256 checks do not authenticate a ZIP against deliberate tampering, certificate revocation and trusted timestamp evaluation are not implemented, and the profile registry is device-local rather than a cross-device identity system. OCR/search quality depends on source quality and indexing completion. See [docs/SECURITY.md](docs/SECURITY.md) and [docs/QUALITY_AUDIT.md](docs/QUALITY_AUDIT.md) before production distribution. GitHub Actions builds and emulator tests must pass, and physical-device testing is still required.
 
 ## License
 
