@@ -214,8 +214,17 @@ class DocumentRepository(context: Context) {
         var displayName = uri.lastPathSegment?.substringAfterLast('/') ?: "Untitled document"
         var sizeBytes = 0L
         var lastModified: Long? = null
-        resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE, DocumentsContract.Document.COLUMN_LAST_MODIFIED), null, null, null)
-            ?.use { cursor ->
+        val cursor = try {
+            resolver.query(
+                uri,
+                arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE, DocumentsContract.Document.COLUMN_LAST_MODIFIED),
+                null, null, null
+            )
+        } catch (_: Exception) {
+            // Some third-party document providers reject optional metadata columns.
+            resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE), null, null, null)
+        }
+        cursor?.use { cursor ->
                 if (cursor.moveToFirst()) {
                     val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
                     if (nameIndex >= 0) cursor.getString(nameIndex)?.takeIf(String::isNotBlank)?.let {
