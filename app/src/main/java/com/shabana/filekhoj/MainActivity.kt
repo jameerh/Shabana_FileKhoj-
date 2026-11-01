@@ -503,7 +503,10 @@ class MainActivity : ComponentActivity() {
                 val result = withContext(Dispatchers.IO) {
                     BackupRestoreManager(applicationContext).restoreBackup(temp)
                 }
-                importStatus.value = "Google Drive restore complete: ${result.restored} restored, ${result.skipped} skipped."
+                importStatus.value = "Google Drive restore complete: ${result.restored} restored, ${result.skipped} skipped." +
+                    if (result.indexingQueueFailures > 0) {
+                        " Indexing could not be queued for ${result.indexingQueueFailures} document(s); reopen the library and retry indexing."
+                    } else ""
             } catch (error: Exception) {
                 Log.e("ShabanaFileKhoj", "Google Drive restore failed", error)
                 importStatus.value = "Google Drive restore failed: ${error.message ?: error.javaClass.simpleName}. Existing library entries were kept."
