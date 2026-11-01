@@ -8,8 +8,8 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
-    entities = [DocumentEntity::class, DocumentTextEntity::class, DocumentFtsEntity::class, DocumentProfileEntity::class, DocumentProfileAssignmentEntity::class],
-    version = 5,
+    entities = [DocumentEntity::class, DocumentTextEntity::class, DocumentFtsEntity::class, DocumentProfileEntity::class, DocumentProfileAssignmentEntity::class, DocumentReminderEntity::class],
+    version = 6,
     exportSchema = false
 )
 abstract class DocumentDatabase : RoomDatabase() {
@@ -104,6 +104,24 @@ abstract class DocumentDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("""
+                    CREATE TABLE IF NOT EXISTS document_reminders (
+                        documentId INTEGER NOT NULL PRIMARY KEY,
+                        label TEXT NOT NULL,
+                        dueAt INTEGER NOT NULL,
+                        enabled INTEGER NOT NULL,
+                        notifiedAt INTEGER,
+                        createdAt INTEGER NOT NULL,
+                        FOREIGN KEY(documentId) REFERENCES documents(id) ON UPDATE NO ACTION ON DELETE CASCADE
+                    )
+                """.trimIndent())
+                database.execSQL("CREATE INDEX IF NOT EXISTS index_document_reminders_dueAt ON document_reminders(dueAt)")
+                database.execSQL("CREATE INDEX IF NOT EXISTS index_document_reminders_documentId ON document_reminders(documentId)")
+            }
+        }
+
         @Volatile
         private var instance: DocumentDatabase? = null
 
@@ -114,7 +132,7 @@ abstract class DocumentDatabase : RoomDatabase() {
                     DocumentDatabase::class.java,
                     "filekhoj.db"
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
                     .build()
                     .also { instance = it }
             }
