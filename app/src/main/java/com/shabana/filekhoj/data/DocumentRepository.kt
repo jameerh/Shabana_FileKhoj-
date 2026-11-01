@@ -128,7 +128,11 @@ class DocumentRepository(context: Context) {
         uris.distinctBy { it.toString() }.forEach { uri ->
             var managedCopy: File? = null
             try {
-                if (dao.findBySourceUri(uri.toString()) != null) {
+                val existingDocument = dao.findBySourceUri(uri.toString())
+                if (existingDocument != null) {
+                    dao.insertProfileAssignment(
+                        DocumentProfileAssignmentEntity(existingDocument.id, destinationProfileId)
+                    )
                     alreadyPresent++
                     return@forEach
                 }
