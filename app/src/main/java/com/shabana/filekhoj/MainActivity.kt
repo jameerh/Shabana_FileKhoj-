@@ -197,7 +197,10 @@ class MainActivity : ComponentActivity() {
                         } ?: throw IllegalStateException("Could not read backup.")
                     }
                     val result = withContext(Dispatchers.IO) { BackupRestoreManager(applicationContext).restoreBackup(temp) }
-                    importStatus.value = "Restore complete: ${result.restored} restored, ${result.skipped} skipped."
+                    importStatus.value = "Restore complete: ${result.restored} restored, ${result.skipped} skipped." +
+                        if (result.indexingQueueFailures > 0) {
+                            " Indexing could not be queued for ${result.indexingQueueFailures} document(s); reopen the library and retry indexing."
+                        } else ""
                 } catch (error: Exception) { importStatus.value = "Restore failed: ${error.message}. Existing library kept." }
                 finally { temp.delete() }
             }
