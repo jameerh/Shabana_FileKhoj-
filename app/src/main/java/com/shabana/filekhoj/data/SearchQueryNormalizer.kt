@@ -18,7 +18,7 @@ internal object SearchQueryNormalizer {
         if (terms.isEmpty()) return null
 
         return terms.joinToString(" AND ") { term ->
-            "\"\${term.replace("\"", "\"\"")}\""
+            "\"${term.replace("\"", "\"\"")}\""
         }
     }
 
