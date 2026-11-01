@@ -31,10 +31,22 @@ class BackupRestoreManager(context: Context) {
     suspend fun createBackup(destination: File): BackupResult {
         val documents = dao.getAllForBackup()
         require(documents.size <= MAX_DOCUMENTS) { "Too many documents for a FileKhoj backup." }
+        val profiles = dao.getProfiles()
+        val profilesById = profiles.associateBy { it.id }
+        val assignmentsByDocument = dao.getAllProfileAssignments().groupBy { it.documentId }
         val manifest = JSONObject()
             .put("format", FORMAT)
             .put("version", VERSION)
             .put("createdAt", System.currentTimeMillis())
+            .put("profiles", JSONArray().apply {
+                profiles.forEach { profile ->
+                    put(JSONObject()
+                        .put("name", profile.name)
+                        .put("icon", profile.icon)
+                        .put("colorArgb", profile.colorArgb)
+                        .put("sortOrder", profile.sortOrder))
+                }
+            })
         val rows = JSONArray()
         var bytes = 0L
         ZipOutputStream(destination.outputStream().buffered()).use { zip ->
@@ -64,6 +76,14 @@ class BackupRestoreManager(context: Context) {
                     .put("signatureCount", doc.signatureCount)
                     .put("isEncryptedSource", doc.isEncryptedSource)
                     .put("isStoredDecrypted", doc.isStoredDecrypted)
+                    .put("profileAssignments", JSONArray().apply {
+                        assignmentsByDocument[doc.id].orEmpty().forEach { assignment ->
+                            val profile = profilesById[assignment.profileId] ?: return@forEach
+                            put(JSONObject()
+                                .put("profileName", profile.name)
+                                .put("categoryOverride", assignment.categoryOverride ?: JSONObject.NULL))
+                        }
+                    })
                 )
             }
             manifest.put("documents", rows)
@@ -136,6 +156,7 @@ class BackupRestoreManager(context: Context) {
             }
             val pendingDocuments = mutableListOf<DocumentEntity>()
             val pendingFiles = mutableListOf<File>()
+            val pendingAssignmentNames = mutableListOf<List<Pair<String, String?>>>()
             var expectedBytes = 0L
 
             for (i in 0 until rows.length()) {
@@ -222,13 +243,76 @@ class BackupRestoreManager(context: Context) {
                     managedPath = target.absolutePath,
                     isFavourite = row.optBoolean("isFavourite", false)
                 )
+                val rowAssignments = mutableListOf<Pair<String, String?>>()
+                val assignments = row.optJSONArray("profileAssignments")
+                if (assignments != null) {
+                    for (assignmentIndex in 0 until assignments.length()) {
+                        val assignment = assignments.optJSONObject(assignmentIndex) ?: continue
+                        val profileName = assignment.optString("profileName").trim()
+                        if (profileName.isNotEmpty()) {
+                            val category = if (assignment.isNull("categoryOverride")) null
+                                else assignment.optString("categoryOverride").takeIf(String::isNotBlank)
+                            rowAssignments += profileName.take(MAX_PROFILE_NAME_LENGTH) to category
+                        }
+                    }
+                }
+                pendingAssignmentNames += rowAssignments.distinctBy { it.first.lowercase(java.util.Locale.ROOT) }
             }
             require(referencedEntries == stagedEntries.keys) {
                 "Backup contains document payloads not referenced by its manifest."
             }
 
-            // All payloads have been staged and checked. One Room transaction prevents partial rows.
-            val insertedIds = dao.insertDocumentsAtomically(pendingDocuments)
+            // Resolve profile names only after every archive entry and payload has passed validation.
+            val defaultProfileId = dao.ensureDefaultProfile()
+            val profileIdByName = dao.getProfiles().associate { it.name.lowercase(java.util.Locale.ROOT) to it.id }.toMutableMap()
+            val profileDefinitions = root.optJSONArray("profiles")
+            if (profileDefinitions != null && archiveVersion >= 3) {
+                for (profileIndex in 0 until profileDefinitions.length()) {
+                    val definition = profileDefinitions.optJSONObject(profileIndex) ?: continue
+                    val name = definition.optString("name").trim().take(MAX_PROFILE_NAME_LENGTH)
+                    if (name.isBlank()) continue
+                    val key = name.lowercase(java.util.Locale.ROOT)
+                    if (key !in profileIdByName) {
+                        val now = System.currentTimeMillis()
+                        val createdId = dao.insertProfile(
+                            DocumentProfileEntity(
+                                name = name,
+                                icon = definition.optString("icon", "folder").take(32),
+                                colorArgb = definition.optInt("colorArgb", 0xFF07583D.toInt()),
+                                isDefault = false,
+                                sortOrder = definition.optInt("sortOrder", dao.getProfiles().size).coerceAtLeast(0),
+                                createdAt = now,
+                                updatedAt = now
+                            )
+                        )
+                        profileIdByName[key] = createdId
+                    }
+                }
+            }
+            pendingAssignmentNames.flatten().map { it.first }.distinctBy { it.lowercase(java.util.Locale.ROOT) }.forEach { name ->
+                val key = name.lowercase(java.util.Locale.ROOT)
+                if (key !in profileIdByName) {
+                    val now = System.currentTimeMillis()
+                    val createdId = dao.insertProfile(
+                        DocumentProfileEntity(
+                            name = name.take(MAX_PROFILE_NAME_LENGTH), icon = "folder",
+                            colorArgb = 0xFF07583D.toInt(), isDefault = false,
+                            sortOrder = dao.getProfiles().size, createdAt = now, updatedAt = now
+                        )
+                    )
+                    profileIdByName[key] = createdId
+                }
+            }
+            val assignmentsByIndex = pendingAssignmentNames.map { assignments ->
+                assignments.mapNotNull { (name, category) ->
+                    profileIdByName[name.lowercase(java.util.Locale.ROOT)]?.let { it to category }
+                }
+            }
+
+            // All payloads and workspace mappings are committed together in one Room transaction.
+            val insertedIds = dao.insertDocumentsWithProfileAssignmentsAtomically(
+                pendingDocuments, assignmentsByIndex, defaultProfileId
+            )
             databaseCommitted = true
             var restored = 0
             var skipped = 0
@@ -350,9 +434,10 @@ class BackupRestoreManager(context: Context) {
         const val FORMAT = "SHABANA_FILEKHOJ_BACKUP"
         const val MANIFEST = "filekhoj-manifest.json"
         private const val MIN_SUPPORTED_VERSION = 1
-        private const val VERSION = 2
+        private const val VERSION = 3
         private const val MAX_DOCUMENTS = 10_000
         private const val MAX_DISPLAY_NAME_LENGTH = 512
+        private const val MAX_PROFILE_NAME_LENGTH = 40
         private const val MAX_MANIFEST_BYTES = 16 * 1024 * 1024
         private const val MAX_DOCUMENT_BYTES = 512L * 1024L * 1024L
         private const val MAX_TOTAL_DOCUMENT_BYTES = 1024L * 1024L * 1024L
