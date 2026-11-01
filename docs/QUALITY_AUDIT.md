@@ -47,7 +47,23 @@ Production blockers still open; these are not claimed as fixed by this documenta
 - [ ] Configure repository signing secrets and verify the installed app's signing-key/upgrade compatibility before distribution.
 - [ ] Run physical-device security checks for malicious PDFs, URI permission loss, low-storage failures, and restore rollback.
 
-## Phase 4 — Release gate
+## Phase 4 — OCR, document-management, and archive safety
+
+Implemented in the Phase 4 code changes:
+- [x] Preserve usable extracted text for long PDFs when the OCR page budget prevents complete coverage.
+- [x] Mark incomplete coverage as `PARTIALLY_INDEXED`; reserve `INDEXED` for the configured page-coverage threshold and use `OCR_REQUIRED` when no usable text exists.
+- [x] Show understandable index-status labels in document details.
+- [x] Bound compressed ZIP size before copying user-selected or Google Drive backup archives into app storage.
+- [x] Reject oversized archives during creation and before restore parsing.
+- [x] Require SHA-256 and payload byte-count metadata for version 2 archives while retaining version 1 restore compatibility.
+- [x] Reset restored PDF signature verdicts to `UNKNOWN` and non-PDFs to `UNSIGNED`; never trust signature claims in an unsigned backup manifest.
+- [x] Avoid copying a source PDF's signature verdict to a rewritten/decrypted derivative.
+- [x] Add unit and instrumentation tests for partial indexing, archive bounds, missing integrity metadata, payload tampering, signature metadata reset, and encrypted-PDF derivative handling.
+- [x] Build and unit-test job passed on the original Phase 4 PR head; a clean main-based PR was prepared to avoid reintroducing old Phase 2 history.
+- [ ] Confirm instrumentation tests pass on the clean main-based Phase 4 PR head. The prior instrumentation attempt failed during emulator boot before the test suite could reliably run.
+- [ ] Verify large/scanned PDFs, low-storage archive restore, and provider-specific file handling on physical Android devices.
+
+## Release gate (post-Phase 4)
 
 - [ ] All required unit and instrumentation CI jobs pass on the latest release candidate.
 - [ ] Review the full diff and confirm no user documents, secrets, signing keys, or generated outputs are committed.
