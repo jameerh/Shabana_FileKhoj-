@@ -1,6 +1,6 @@
 # Shabana FileKhoj
 
-**तुमचे सर्व दस्तऐवज, शोधा क्षणार्त!**  
+**तुमचे सर्व दस्तऐवज, शोधा क्षणात!**  
 *Save once. Search anything. Find instantly.*
 
 Shabana FileKhoj is an Android-first, offline-first document library for keeping local references to PDFs, images and supported documents, then finding them by filename or locally indexed text.
