@@ -150,11 +150,11 @@ class PdfEditorSession private constructor(
             val workingFile = File(workspace, "source_${UUID.randomUUID()}.pdf")
 
             try {
-                val input = if (source.isStoredDecrypted) {
+                val input = if (!source.managedPath.isNullOrBlank()) {
                     val path = source.managedPath
-                        ?: throw IllegalStateException("The unlocked PDF copy is unavailable.")
+                        ?: throw IllegalStateException("The managed PDF copy is unavailable.")
                     val managed = File(path)
-                    require(managed.isFile) { "The unlocked PDF copy is missing." }
+                    require(managed.isFile) { "The managed PDF copy is missing." }
                     managed.inputStream()
                 } else {
                     appContext.contentResolver.openInputStream(Uri.parse(source.sourceUri))
