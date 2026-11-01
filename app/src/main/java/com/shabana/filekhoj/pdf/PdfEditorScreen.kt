@@ -47,6 +47,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -483,6 +485,9 @@ fun PdfEditorScreen(
                                                     selectedPageIndices = if (checked) {
                                                         selectedPageIndices + page.sourceIndex
                                                     } else selectedPageIndices - page.sourceIndex
+                                                },
+                                                modifier = Modifier.semantics {
+                                                    contentDescription = "Select source page ${page.sourceIndex + 1}"
                                                 }
                                             )
                                             val thumbnail = thumbnails[page.sourceIndex]
@@ -520,12 +525,18 @@ fun PdfEditorScreen(
                                                 enabled = index > 0,
                                                 onClick = {
                                                     updatePages(PdfEditorPageOperations.move(pages, index, index - 1))
+                                                },
+                                                modifier = Modifier.semantics {
+                                                    contentDescription = "Move page ${index + 1} up"
                                                 }
                                             ) { Text("↑") }
                                             TextButton(
                                                 enabled = index < pages.lastIndex,
                                                 onClick = {
                                                     updatePages(PdfEditorPageOperations.move(pages, index, index + 1))
+                                                },
+                                                modifier = Modifier.semantics {
+                                                    contentDescription = "Move page ${index + 1} down"
                                                 }
                                             ) { Text("↓") }
                                         }
