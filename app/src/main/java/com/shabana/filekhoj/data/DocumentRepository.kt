@@ -162,6 +162,10 @@ class DocumentRepository(context: Context) {
             try {
                 val existingDocument = dao.findBySourceUri(uri.toString())
                 if (existingDocument != null) {
+                    if (copyToManagedStorage && existingDocument.managedPath.isNullOrBlank()) {
+                        val durableCopy = copyIntoManagedStorage(uri, existingDocument.displayName)
+                        dao.update(existingDocument.copy(managedPath = durableCopy.absolutePath))
+                    }
                     dao.insertProfileAssignment(
                         DocumentProfileAssignmentEntity(existingDocument.id, destinationProfileId)
                     )
