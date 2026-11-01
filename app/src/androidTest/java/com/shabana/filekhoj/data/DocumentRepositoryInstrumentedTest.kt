@@ -76,7 +76,7 @@ class DocumentRepositoryInstrumentedTest {
             val firstUri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", first)
             val secondUri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", second)
             val defaultId = repository.ensureDefaultProfile()
-            profileId = repository.createProfile("Duplicate test $token")
+            profileId = repository.createProfile("Duplicate-${token.take(8)}")
 
             val firstResult = repository.importDocuments(listOf(firstUri), profileId = defaultId)
             val secondResult = repository.importDocuments(listOf(secondUri), profileId = profileId)
