@@ -4,9 +4,20 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
     id("com.google.devtools.ksp")
 }
+
+val signingStorePath = System.getenv("ANDROID_SIGNING_KEYSTORE_PATH")
+val signingStorePassword = System.getenv("ANDROID_SIGNING_KEYSTORE_PASSWORD")
+val signingKeyAlias = System.getenv("ANDROID_SIGNING_KEY_ALIAS")
+val signingKeyPassword = System.getenv("ANDROID_SIGNING_KEY_PASSWORD")
+val hasPersistentSigning = !signingStorePath.isNullOrBlank() &&
+    !signingStorePassword.isNullOrBlank() &&
+    !signingKeyAlias.isNullOrBlank() &&
+    !signingKeyPassword.isNullOrBlank()
+
 android {
     namespace = "com.shabana.filekhoj"
     compileSdk = 35
+
     defaultConfig {
         applicationId = "in.shabana.filekhoj"
         minSdk = 24
@@ -15,6 +26,33 @@ android {
         versionName = "0.1.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
+
+    signingConfigs {
+        create("persistent") {
+            if (hasPersistentSigning) {
+                storeFile = file(signingStorePath!!)
+                storePassword = signingStorePassword
+                keyAlias = signingKeyAlias
+                keyPassword = signingKeyPassword
+            }
+        }
+    }
+
+    buildTypes {
+        getByName("debug") {
+            // CI uses the persistent key whenever the protected GitHub secrets exist.
+            // Without them, Gradle's normal debug key is used for local development only.
+            if (hasPersistentSigning) {
+                signingConfig = signingConfigs.getByName("persistent")
+            }
+        }
+        getByName("release") {
+            // Release APKs must be signed with the same persistent key as update APKs.
+            signingConfig = signingConfigs.getByName("persistent")
+            isMinifyEnabled = false
+        }
+    }
+
     buildFeatures { compose = true }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -22,6 +60,7 @@ android {
     }
     kotlinOptions { jvmTarget = "17" }
 }
+
 dependencies {
     val bom = platform("androidx.compose:compose-bom:2024.12.01")
     implementation(bom)
