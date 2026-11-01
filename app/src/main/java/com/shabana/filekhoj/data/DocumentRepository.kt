@@ -11,6 +11,8 @@ import androidx.work.WorkManager
 import androidx.work.workDataOf
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.security.MessageDigest
@@ -55,28 +57,30 @@ class DocumentRepository(context: Context) {
     suspend fun ensureDefaultProfile(): Long = dao.ensureDefaultProfile()
 
     suspend fun seedDefaultProfilesIfNeeded() = withContext(Dispatchers.IO) {
-        val prefs = appContext.getSharedPreferences("filekhoj_document_profiles", Context.MODE_PRIVATE)
-        if (prefs.getBoolean("builtins_seeded_v1", false)) return@withContext
-        val existing = dao.getProfiles()
-        if (existing.isEmpty()) dao.ensureDefaultProfile()
-        val currentNames = dao.getProfiles().map { it.name.lowercase(java.util.Locale.ROOT) }.toMutableSet()
-        DocumentProfileDefaults.profiles.forEach { profile ->
-            if (profile.name.lowercase(java.util.Locale.ROOT) !in currentNames) {
-                val now = System.currentTimeMillis()
-                dao.insertProfile(
-                    DocumentProfileEntity(
-                        name = profile.name, icon = profile.icon, colorArgb = profile.colorArgb,
-                        isDefault = profile.name == DocumentProfileEntity.DEFAULT_NAME,
-                        sortOrder = profile.sortOrder, createdAt = now, updatedAt = now
+        profileSeedMutex.withLock {
+            val prefs = appContext.getSharedPreferences("filekhoj_document_profiles", Context.MODE_PRIVATE)
+            if (prefs.getBoolean("builtins_seeded_v1", false)) return@withLock
+            val existing = dao.getProfiles()
+            if (existing.isEmpty()) dao.ensureDefaultProfile()
+            val currentNames = dao.getProfiles().map { it.name.lowercase(java.util.Locale.ROOT) }.toMutableSet()
+            DocumentProfileDefaults.profiles.forEach { profile ->
+                if (profile.name.lowercase(java.util.Locale.ROOT) !in currentNames) {
+                    val now = System.currentTimeMillis()
+                    dao.insertProfile(
+                        DocumentProfileEntity(
+                            name = profile.name, icon = profile.icon, colorArgb = profile.colorArgb,
+                            isDefault = profile.name == DocumentProfileEntity.DEFAULT_NAME,
+                            sortOrder = profile.sortOrder, createdAt = now, updatedAt = now
+                        )
                     )
-                )
+                }
             }
+            val defaultId = dao.ensureDefaultProfile()
+            dao.getAllForBackup().forEach { document ->
+                dao.insertProfileAssignment(DocumentProfileAssignmentEntity(document.id, defaultId, document.category))
+            }
+            prefs.edit().putBoolean("builtins_seeded_v1", true).commit()
         }
-        val defaultId = dao.ensureDefaultProfile()
-        dao.getAllForBackup().forEach { document ->
-            dao.insertProfileAssignment(DocumentProfileAssignmentEntity(document.id, defaultId, document.category))
-        }
-        prefs.edit().putBoolean("builtins_seeded_v1", true).commit()
     }
 
     suspend fun createProfile(name: String, icon: String = "folder", colorArgb: Int = 0xFF07583D.toInt()): Long {
@@ -169,7 +173,7 @@ class DocumentRepository(context: Context) {
         profileId: Long? = null,
         copyToManagedStorage: Boolean = false
     ): ImportDocumentResult = withContext(Dispatchers.IO) {
-        val destinationProfileId = profileId ?: dao.ensureDefaultProfile()
+        val destinationProfileId = profileId?.takeIf { dao.getProfile(it) != null } ?: dao.ensureDefaultProfile()
         var imported = 0
         var alreadyPresent = 0
         var failed = 0
@@ -443,6 +447,7 @@ class DocumentRepository(context: Context) {
     }
 
     companion object {
+        private val profileSeedMutex = Mutex()
         const val MAX_MANAGED_IMPORT_BYTES = 512L * 1024L * 1024L
     }
 
