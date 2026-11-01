@@ -101,6 +101,9 @@ import com.google.android.gms.common.api.ApiException
 import com.google.android.gms.common.api.Scope
 import com.shabana.filekhoj.data.ScheduledBackupWorker
 import com.shabana.filekhoj.data.DocumentEntity
+import com.shabana.filekhoj.data.DocumentProfileEntity
+import com.shabana.filekhoj.data.DocumentProfileAssignmentEntity
+import com.shabana.filekhoj.data.DocumentProfileDefaults
 import com.shabana.filekhoj.data.DocumentRepository
 import com.shabana.filekhoj.pdf.PdfEditorScreen
 import java.io.File
@@ -126,8 +129,10 @@ private enum class PreviewMode(val label: String) {
 
 class MainActivity : ComponentActivity() {
     private lateinit var documentPicker: ActivityResultLauncher<Array<String>>
+    private lateinit var importFolderLauncher: ActivityResultLauncher<Uri?>
     private lateinit var pdfExportLauncher: ActivityResultLauncher<String>
     private lateinit var exportFolderLauncher: ActivityResultLauncher<Uri?>
+    private companion object { const val MAX_FOLDER_IMPORT_FILES = 5_000 }
     private lateinit var backupExportLauncher: ActivityResultLauncher<String>
     private lateinit var backupRestoreLauncher: ActivityResultLauncher<Array<String>>
     private lateinit var driveSignInLauncher: ActivityResultLauncher<Intent>
@@ -276,7 +281,7 @@ class MainActivity : ComponentActivity() {
             }
             lifecycleScope.launch {
                 importStatus.value = "Importing ${selectedUris.size} document(s)…"
-                val result = repository.importDocuments(selectedUris)
+                val result = repository.importDocuments(selectedUris, profileId = activeWorkspaceDestinationId())
                 passwordQueue.value = result.passwordRequiredUris
                 passwordError.value = null
                 importStatus.value = buildString {
@@ -357,7 +362,7 @@ class MainActivity : ComponentActivity() {
                         copiedBytes
                     }
 
-                    val importResult = repository.importDocuments(listOf(destinationUri))
+                    val importResult = repository.importDocuments(listOf(destinationUri), profileId = activeWorkspaceDestinationId())
                     val message = when {
                         importResult.imported > 0 ->
                             "PDF saved ($resultMessage bytes) and added to your FileKhoj library."
@@ -401,7 +406,7 @@ class MainActivity : ComponentActivity() {
                 passwordError = passwordError.value,
                 onPasswordSubmit = { uri, password ->
                     lifecycleScope.launch {
-                        val result = repository.importDocuments(listOf(uri), mapOf(uri.toString() to password))
+                        val result = repository.importDocuments(listOf(uri), mapOf(uri.toString() to password), profileId = activeWorkspaceDestinationId())
                         if (result.passwordRequiredUris.isNotEmpty()) {
                             passwordError.value = "Incorrect password or unsupported PDF encryption. Try again."
                         } else {
@@ -444,6 +449,7 @@ class MainActivity : ComponentActivity() {
                         "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
                     ))
                 },
+                onImportFolderClick = { importFolderLauncher.launch(null) },
                 onOpenDocument = ::openDocument,
                 onPdfSaveRequest = ::launchPdfExport,
                 onSaveSelected = { selected ->
@@ -637,6 +643,7 @@ private fun FileKhojApp(
     onPasswordCancel: () -> Unit,
     onSearchSubmitted: (String) -> Unit,
     onImportClick: () -> Unit,
+    onImportFolderClick: () -> Unit,
     onOpenDocument: (DocumentEntity) -> Unit,
     onPdfSaveRequest: (File, String, (Boolean, String?) -> Unit) -> Unit,
     driveAccount: String?,
