@@ -48,7 +48,7 @@ The app requests only the `drive.file` scope. It creates and accesses its own ba
 
 ## Consistent APK updates
 
-GitHub Actions supports a persistent signing keystore for repeatable in-place APK updates. Configure the four repository Actions secrets described in [docs/SIGNING.md](docs/SIGNING.md). The workflow intentionally does not publish APK artifacts until persistent signing is configured, preventing accidental distribution of APKs signed with a temporary runner key. **A new key cannot update an older installation signed with a different key.**
+GitHub Actions supports a persistent signing keystore for repeatable in-place APK updates. Configure the four repository Actions secrets described in [docs/SIGNING.md](docs/SIGNING.md). When those secrets are unavailable, CI publishes a clearly labeled **debug-only APK for fresh-install testing** after build and unit tests pass; it is not update-compatible and may require uninstalling an older differently signed installation (back up local data first). Persistently signed debug/release APK artifacts are published only when the signing secrets are configured. **A new key cannot update an older installation signed with a different key.**
 
 ## Toolchain baseline
 
@@ -59,7 +59,7 @@ GitHub Actions supports a persistent signing keystore for repeatable in-place AP
 - Gradle runtime JDK 21; application bytecode target Java 17
 - Minimum Android API 24
 
-See [docs/BUILDING.md](docs/BUILDING.md) for local setup and [docs/QUALITY_AUDIT.md](docs/QUALITY_AUDIT.md) for the phased reliability/QA status.
+See [docs/BUILDING.md](docs/BUILDING.md) for local setup, [docs/MULTI_PROFILE_WORKSPACES.md](docs/MULTI_PROFILE_WORKSPACES.md) for workspace architecture/import behavior, and [docs/QUALITY_AUDIT.md](docs/QUALITY_AUDIT.md) for the phased reliability/QA status.
 
 ## Quick start
 
