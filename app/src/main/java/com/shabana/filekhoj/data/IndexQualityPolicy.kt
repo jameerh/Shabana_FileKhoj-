@@ -29,8 +29,15 @@ internal object IndexQualityPolicy {
      * Keeps usable extracted text searchable when a long PDF exceeds the OCR page budget,
      * while making incomplete coverage explicit instead of silently discarding all text.
      */
-    fun pdfIndexStatus(text: String, usablePages: Int, totalPages: Int): String = when {
-        text.isBlank() || usablePages <= 0 || totalPages <= 0 -> DocumentEntity.INDEX_STATUS_OCR_REQUIRED
+    fun pdfIndexStatus(
+        text: String,
+        usablePages: Int,
+        totalPages: Int,
+        processedPages: Int = totalPages
+    ): String = when {
+        text.isBlank() || usablePages <= 0 || totalPages <= 0 || processedPages <= 0 ->
+            DocumentEntity.INDEX_STATUS_OCR_REQUIRED
+        processedPages < totalPages -> DocumentEntity.INDEX_STATUS_PARTIALLY_INDEXED
         hasEnoughPageCoverage(usablePages, totalPages) -> DocumentEntity.INDEX_STATUS_INDEXED
         else -> DocumentEntity.INDEX_STATUS_PARTIALLY_INDEXED
     }
