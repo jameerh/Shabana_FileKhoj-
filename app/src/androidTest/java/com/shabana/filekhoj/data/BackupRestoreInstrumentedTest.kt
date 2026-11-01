@@ -70,7 +70,7 @@ class BackupRestoreInstrumentedTest {
         val repository = DocumentRepository(context)
         val manager = BackupRestoreManager(context)
         val token = UUID.randomUUID().toString()
-        val profileName = "Shop-$token"
+        val profileName = "Shop-${token.take(8)}"
         val source = File(context.filesDir, "documents/profile-backup-$token.txt")
         val archive = File(context.cacheDir, "profile-backup-$token.zip")
         val beforeIds = dao.getAllForBackup().map { it.id }.toSet()
