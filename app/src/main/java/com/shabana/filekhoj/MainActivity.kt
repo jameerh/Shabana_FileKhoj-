@@ -1733,11 +1733,12 @@ private fun FileKhojApp(
                     val document = editingDocument ?: return@TextButton
                     scope.launch {
                         try {
-                            if (activeWorkspaceId == null) {
+                            val workspaceId = activeWorkspaceId
+                            if (workspaceId == null) {
                                 repository.updateUserMetadata(document.id, editName, editCategory)
                             } else {
                                 repository.updateUserMetadata(document.id, editName, document.category)
-                                repository.setProfileCategory(document.id, activeWorkspaceId, editCategory)
+                                repository.setProfileCategory(document.id, workspaceId, editCategory)
                             }
                             onStatus("Document details updated for the selected workspace.")
                         } catch (_: IllegalArgumentException) {
