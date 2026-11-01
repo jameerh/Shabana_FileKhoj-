@@ -72,12 +72,22 @@ class DocumentIndexWorker(
                 } finally {
                     ocrEngine?.close()
                 }
-                if (extracted.text.isBlank() ||
-                    !IndexQualityPolicy.hasEnoughPageCoverage(extracted.usablePages, extracted.totalPages)
-                ) {
-                    dao.clearExtractedContent(id, DocumentEntity.INDEX_STATUS_OCR_REQUIRED)
+                val indexStatus = IndexQualityPolicy.pdfIndexStatus(
+                    extracted.text,
+                    extracted.usablePages,
+                    extracted.totalPages
+                )
+                if (indexStatus == DocumentEntity.INDEX_STATUS_OCR_REQUIRED) {
+                    dao.clearExtractedContent(id, indexStatus)
                 } else {
-                    dao.saveExtractedContent(id, document.displayName, extracted.text, extracted.totalPages)
+                    // Keep usable text searchable for long PDFs while disclosing incomplete coverage.
+                    dao.saveExtractedContent(
+                        id,
+                        document.displayName,
+                        extracted.text,
+                        extracted.totalPages,
+                        indexStatus
+                    )
                 }
                 Result.success()
             } catch (_: SecurityException) {
