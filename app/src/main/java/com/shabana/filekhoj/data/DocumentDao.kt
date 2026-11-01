@@ -65,13 +65,14 @@ interface DocumentDao {
         id: Long,
         displayName: String,
         extractedText: String,
-        pageCount: Int
+        pageCount: Int,
+        indexStatus: String = DocumentEntity.INDEX_STATUS_INDEXED
     ) {
         upsertExtractedText(
             DocumentTextEntity(id, extractedText, System.currentTimeMillis(), pageCount)
         )
         upsertFullTextIndex(DocumentFtsEntity(id, displayName, extractedText))
-        updateIndexStatus(id, DocumentEntity.INDEX_STATUS_INDEXED)
+        updateIndexStatus(id, indexStatus)
     }
 
     @Transaction
