@@ -238,10 +238,9 @@ class MainActivity : ComponentActivity() {
                                 contentResolver, rootUri, document.mimeType.ifBlank { "application/octet-stream" },
                                 uniqueExportName(treeUri, document.displayName)
                             ) ?: throw IllegalStateException("Destination provider refused to create the file")
-                            val input = if (document.isStoredDecrypted) {
-                                val file = document.managedPath?.let(::File)
-                                    ?: throw IllegalStateException("Private unlocked copy is missing")
-                                if (!file.isFile) throw IllegalStateException("Private unlocked copy is missing")
+                            val input = if (!document.managedPath.isNullOrBlank()) {
+                                val file = File(document.managedPath)
+                                if (!file.isFile) throw IllegalStateException("Private FileKhoj copy is missing")
                                 file.inputStream()
                             } else {
                                 contentResolver.openInputStream(Uri.parse(document.sourceUri))
@@ -734,10 +733,10 @@ class MainActivity : ComponentActivity() {
 
     private fun openDocument(document: DocumentEntity) {
         try {
-            val documentUri = if (document.isStoredDecrypted) {
-                val managedFile = document.managedPath?.let(::File)
-                if (managedFile == null || !managedFile.isFile) {
-                    importStatus.value = "Unlocked local copy is missing. Remove this entry and import the protected PDF again."
+            val documentUri = if (!document.managedPath.isNullOrBlank()) {
+                val managedFile = File(document.managedPath)
+                if (!managedFile.isFile) {
+                    importStatus.value = "The private FileKhoj copy is missing. Re-import the document."
                     return
                 }
                 FileProvider.getUriForFile(this, "$packageName.fileprovider", managedFile)
@@ -1206,12 +1205,12 @@ private fun FileKhojApp(
                                             try {
                                                 val shareUris = ArrayList<Uri>()
                                                 selectedDocuments.forEach { document ->
-                                                    val uri = if (document.isStoredDecrypted) {
-                                                        val managedFile = document.managedPath?.let(::File)
-                                                        if (managedFile == null || !managedFile.isFile)
-                                                            throw IllegalStateException("Unlocked copy missing: ${document.displayName}")
-                                                        FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", managedFile)
-                                                    } else Uri.parse(document.sourceUri)
+                                                    val uri = if (!document.managedPath.isNullOrBlank()) {
+                                                         val managedFile = File(document.managedPath)
+                                                         if (!managedFile.isFile)
+                                                             throw IllegalStateException("FileKhoj copy missing: ${document.displayName}")
+                                                         FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", managedFile)
+                                                     } else Uri.parse(document.sourceUri)
                                                     shareUris.add(uri)
                                                 }
                                                 if (shareUris.isEmpty()) onStatus("Select at least one file to share.")
