@@ -283,6 +283,9 @@ class MainActivity : ComponentActivity() {
                     if (result.passwordRequiredUris.isNotEmpty()) {
                         append(" • password required for ${result.passwordRequiredUris.size} PDF(s)")
                     }
+                    if (result.indexingQueueFailures > 0) {
+                        append(" • indexing could not be queued for ${result.indexingQueueFailures} document(s)")
+                    }
                 }
             }
         }
