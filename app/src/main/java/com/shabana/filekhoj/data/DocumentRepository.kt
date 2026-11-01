@@ -31,6 +31,54 @@ class DocumentRepository(context: Context) {
     private val securePdfImporter by lazy { SecurePdfImporter(appContext) }
 
     fun observeDocuments(): Flow<List<DocumentEntity>> = dao.observeAll()
+    fun observeProfiles(): Flow<List<DocumentProfileEntity>> = dao.observeProfiles()
+    fun observeProfileAssignments(): Flow<List<DocumentProfileAssignmentEntity>> = dao.observeProfileAssignments()
+    suspend fun ensureDefaultProfile(): Long = dao.ensureDefaultProfile()
+    suspend fun createProfile(name: String, icon: String = "folder", colorArgb: Int = 0xFF07583D.toInt()): Long {
+        val normalized = name.trim()
+        require(normalized.isNotEmpty()) { "Profile name cannot be empty." }
+        require(normalized.length <= 40) { "Profile name must be 40 characters or fewer." }
+        require(dao.getProfiles().none { it.name.equals(normalized, ignoreCase = true) }) {
+            "A profile with this name already exists."
+        }
+        val now = System.currentTimeMillis()
+        val nextOrder = (dao.getProfiles().maxOfOrNull { it.sortOrder } ?: -1) + 1
+        return dao.insertProfile(
+            DocumentProfileEntity(
+                name = normalized, icon = icon, colorArgb = colorArgb,
+                isDefault = false, sortOrder = nextOrder, createdAt = now, updatedAt = now
+            )
+        )
+    }
+    suspend fun renameProfile(profileId: Long, name: String) {
+        val normalized = name.trim()
+        require(normalized.isNotEmpty() && normalized.length <= 40) { "Enter a profile name of 1–40 characters." }
+        val profile = dao.getProfile(profileId) ?: error("Profile not found.")
+        require(dao.getProfiles().none { it.id != profileId && it.name.equals(normalized, true) }) {
+            "A profile with this name already exists."
+        }
+        dao.updateProfile(profile.copy(name = normalized, updatedAt = System.currentTimeMillis()))
+    }
+    suspend fun assignDocumentsToProfile(documentIds: Collection<Long>, profileId: Long) {
+        require(dao.getProfile(profileId) != null) { "Destination profile no longer exists." }
+        dao.insertProfileAssignments(documentIds.distinct().map { DocumentProfileAssignmentEntity(it, profileId) })
+    }
+    suspend fun removeDocumentFromProfile(documentId: Long, profileId: Long) {
+        val assignments = dao.getProfileIdsForDocument(documentId)
+        require(assignments.size > 1) { "A document must remain assigned to at least one profile." }
+        dao.removeProfileAssignment(documentId, profileId)
+    }
+    suspend fun deleteProfile(profileId: Long) {
+        val profile = dao.getProfile(profileId) ?: return
+        require(!profile.isDefault) { "The default profile cannot be deleted." }
+        val defaultId = dao.ensureDefaultProfile()
+        val documentIds = dao.getDocumentIdsForProfile(profileId)
+        dao.insertProfileAssignments(documentIds.map { DocumentProfileAssignmentEntity(it, defaultId) })
+        dao.deleteProfile(profile)
+    }
+    suspend fun setProfileCategory(documentId: Long, profileId: Long, category: String?) {
+        dao.updateProfileCategory(documentId, profileId, category?.trim()?.takeIf(String::isNotEmpty))
+    }
     fun observeCount(): Flow<Int> = dao.observeCount()
 
     /**
@@ -67,8 +115,10 @@ class DocumentRepository(context: Context) {
 
     suspend fun importDocuments(
         uris: List<Uri>,
-        passwordsByUri: Map<String, String> = emptyMap()
+        passwordsByUri: Map<String, String> = emptyMap(),
+        profileId: Long? = null
     ): ImportDocumentResult = withContext(Dispatchers.IO) {
+        val destinationProfileId = profileId ?: dao.ensureDefaultProfile()
         var imported = 0
         var alreadyPresent = 0
         var failed = 0
@@ -135,6 +185,7 @@ class DocumentRepository(context: Context) {
                     alreadyPresent++
                     managedCopy?.delete()
                 } else {
+                    dao.insertProfileAssignment(DocumentProfileAssignmentEntity(rowId, destinationProfileId))
                     imported++
                     val queued = runCatching {
                         val indexRequest = OneTimeWorkRequestBuilder<DocumentIndexWorker>()
