@@ -41,6 +41,10 @@ Before testing Google Drive on a device:
 
 The app requests only the `drive.file` scope. It creates and accesses its own backup folder and latest ZIP rather than requesting broad access to the user's entire Drive. Cloud backup requires network access; local document import, search and ZIP export remain available offline. Scheduled backups currently remain local-only.
 
+## Consistent APK updates
+
+GitHub Actions supports a persistent signing keystore for repeatable in-place APK updates. Configure the four repository Actions secrets described in [docs/SIGNING.md](docs/SIGNING.md). The workflow intentionally does not publish APK artifacts until persistent signing is configured, preventing accidental distribution of APKs signed with a temporary runner key. **A new key cannot update an older installation signed with a different key.**
+
 ## Toolchain baseline
 
 - Gradle 8.13
