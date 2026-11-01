@@ -89,10 +89,16 @@ abstract class DocumentDatabase : RoomDatabase() {
                 database.execSQL("CREATE INDEX IF NOT EXISTS index_document_profile_assignments_profileId ON document_profile_assignments(profileId)")
                 database.execSQL("CREATE INDEX IF NOT EXISTS index_document_profile_assignments_documentId ON document_profile_assignments(documentId)")
                 database.execSQL("""
-                    INSERT INTO document_profiles (id, name, icon, colorArgb, isDefault, sortOrder, createdAt, updatedAt)
-                    VALUES (1, 'Personal', 'person', -16284611, 1, 0,
-                        CAST(strftime('%s','now') AS INTEGER) * 1000,
-                        CAST(strftime('%s','now') AS INTEGER) * 1000)
+                    INSERT INTO document_profiles (id, name, icon, colorArgb, isDefault, sortOrder, createdAt, updatedAt) VALUES
+                    (1, 'Personal', 'person', -16284611, 1, 0, CAST(strftime('%s','now') AS INTEGER) * 1000, CAST(strftime('%s','now') AS INTEGER) * 1000),
+                    (2, 'Shop / Business', 'store', -1524118, 0, 1, CAST(strftime('%s','now') AS INTEGER) * 1000, CAST(strftime('%s','now') AS INTEGER) * 1000),
+                    (3, 'Medical', 'medical', -6606249, 0, 2, CAST(strftime('%s','now') AS INTEGER) * 1000, CAST(strftime('%s','now') AS INTEGER) * 1000),
+                    (4, 'Farm / Agriculture', 'farm', -11500947, 0, 3, CAST(strftime('%s','now') AS INTEGER) * 1000, CAST(strftime('%s','now') AS INTEGER) * 1000),
+                    (5, 'Property', 'home', -8762301, 0, 4, CAST(strftime('%s','now') AS INTEGER) * 1000, CAST(strftime('%s','now') AS INTEGER) * 1000),
+                    (6, 'Family', 'family', -7907672, 0, 5, CAST(strftime('%s','now') AS INTEGER) * 1000, CAST(strftime('%s','now') AS INTEGER) * 1000),
+                    (7, 'CSC / Digital Services', 'service', -16085365, 0, 6, CAST(strftime('%s','now') AS INTEGER) * 1000, CAST(strftime('%s','now') AS INTEGER) * 1000),
+                    (8, 'Education', 'education', -4495521, 0, 7, CAST(strftime('%s','now') AS INTEGER) * 1000, CAST(strftime('%s','now') AS INTEGER) * 1000),
+                    (9, 'Vehicle', 'vehicle', -11842740, 0, 8, CAST(strftime('%s','now') AS INTEGER) * 1000, CAST(strftime('%s','now') AS INTEGER) * 1000)
                 """.trimIndent())
                 database.execSQL("INSERT OR IGNORE INTO document_profile_assignments (documentId, profileId, categoryOverride) SELECT id, 1, category FROM documents")
             }
