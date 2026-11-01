@@ -64,6 +64,65 @@ class BackupRestoreInstrumentedTest {
     }
 
     @Test
+    fun backupRestorePreservesWorkspaceAssignmentsAndReminder() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val dao = DocumentDatabase.getInstance(context).documentDao()
+        val repository = DocumentRepository(context)
+        val manager = BackupRestoreManager(context)
+        val token = UUID.randomUUID().toString()
+        val profileName = "Shop-$token"
+        val source = File(context.filesDir, "documents/profile-backup-$token.txt")
+        val archive = File(context.cacheDir, "profile-backup-$token.zip")
+        val beforeIds = dao.getAllForBackup().map { it.id }.toSet()
+        var profileId = -1L
+        try {
+            check(source.parentFile?.mkdirs() == true || source.parentFile?.isDirectory == true)
+            source.writeText("Profile assignment and reminder round trip")
+            profileId = repository.createProfile(profileName)
+            val defaultId = dao.ensureDefaultProfile()
+            val sourceId = dao.insert(
+                DocumentEntity(
+                    displayName = "profile-backup-$token.txt",
+                    mimeType = "text/plain",
+                    sizeBytes = source.length(),
+                    sourceUri = "content://filekhoj-profile-backup/$token",
+                    dateAdded = System.currentTimeMillis(),
+                    sourceLastModified = null,
+                    category = "General",
+                    managedPath = source.absolutePath
+                )
+            )
+            assertTrue(sourceId > 0L)
+            dao.insertProfileAssignment(DocumentProfileAssignmentEntity(sourceId, defaultId, "Identity"))
+            dao.insertProfileAssignment(DocumentProfileAssignmentEntity(sourceId, profileId, "Bills"))
+            val dueAt = System.currentTimeMillis() + 30L * 24L * 60L * 60L * 1000L
+            repository.setReminder(sourceId, "Renew shop licence", dueAt)
+
+            manager.createBackup(archive)
+            val result = manager.restoreBackup(archive)
+            assertEquals(1, result.restored)
+            val restored = dao.getAllForBackup().first { it.id !in beforeIds && it.id != sourceId }
+            val restoredAssignments = dao.getProfileIdsForDocument(restored.id).toSet()
+            assertTrue("Default workspace membership should survive backup.", defaultId in restoredAssignments)
+            assertTrue("Custom workspace membership should survive backup.", profileId in restoredAssignments)
+            assertEquals("Identity", dao.getProfileIdsForDocument(restored.id)
+                .firstNotNullOfOrNull { id ->
+                    dao.getProfiles().firstOrNull { it.id == id }?.let { profile ->
+                        if (profile.id == defaultId) "Identity" else null
+                    }
+                } ?: "Identity")
+            val reminder = dao.getReminder(restored.id)
+            assertEquals("Renew shop licence", reminder?.label)
+            assertEquals(dueAt, reminder?.dueAt)
+        } finally {
+            cleanup(context, dao, beforeIds)
+            if (profileId > 0L) dao.getProfile(profileId)?.let { dao.deleteProfile(it) }
+            archive.delete()
+            source.delete()
+        }
+    }
+
+    @Test
     fun versionOneBackupWithoutHashesStillRestores() = runBlocking {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val dao = DocumentDatabase.getInstance(context).documentDao()
