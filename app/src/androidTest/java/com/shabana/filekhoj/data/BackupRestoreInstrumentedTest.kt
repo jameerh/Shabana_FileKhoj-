@@ -105,12 +105,8 @@ class BackupRestoreInstrumentedTest {
             val restoredAssignments = dao.getProfileIdsForDocument(restored.id).toSet()
             assertTrue("Default workspace membership should survive backup.", defaultId in restoredAssignments)
             assertTrue("Custom workspace membership should survive backup.", profileId in restoredAssignments)
-            assertEquals("Identity", dao.getProfileIdsForDocument(restored.id)
-                .firstNotNullOfOrNull { id ->
-                    dao.getProfiles().firstOrNull { it.id == id }?.let { profile ->
-                        if (profile.id == defaultId) "Identity" else null
-                    }
-                } ?: "Identity")
+            assertEquals("Identity", dao.getProfileCategory(restored.id, defaultId))
+            assertEquals("Bills", dao.getProfileCategory(restored.id, profileId))
             val reminder = dao.getReminder(restored.id)
             assertEquals("Renew shop licence", reminder?.label)
             assertEquals(dueAt, reminder?.dueAt)
