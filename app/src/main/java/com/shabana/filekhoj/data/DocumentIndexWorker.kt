@@ -21,11 +21,9 @@ class DocumentIndexWorker(
     appContext: Context,
     params: WorkerParameters
 ) : CoroutineWorker(appContext, params) {
-
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
         val id = inputData.getLong(KEY_DOCUMENT_ID, -1L)
         if (id <= 0L) return@withContext Result.failure()
-
         val dao = DocumentDatabase.getInstance(applicationContext).documentDao()
         val document = dao.findById(id) ?: return@withContext Result.success()
         dao.updateIndexStatus(id, DocumentEntity.INDEX_STATUS_INDEXING)
@@ -38,13 +36,16 @@ class DocumentIndexWorker(
                 if (bitmap == null) {
                     dao.clearExtractedContent(id, DocumentEntity.INDEX_STATUS_FAILED)
                 } else {
-                    val text = try {
+                    val result = try {
                         OnDeviceOcrEngine().use { it.recognize(bitmap) }
                     } finally {
                         bitmap.recycle()
                     }
-                    if (text.isBlank()) dao.clearExtractedContent(id, DocumentEntity.INDEX_STATUS_OCR_REQUIRED)
-                    else dao.saveExtractedContent(id, document.displayName, text, 1)
+                    if (IndexQualityPolicy.isUsableOcr(result.text, result.confidence)) {
+                        dao.saveExtractedContent(id, document.displayName, result.text, 1)
+                    } else {
+                        dao.clearExtractedContent(id, DocumentEntity.INDEX_STATUS_OCR_REQUIRED)
+                    }
                 }
                 Result.success()
             } catch (_: SecurityException) {
@@ -71,10 +72,12 @@ class DocumentIndexWorker(
                 } finally {
                     ocrEngine?.close()
                 }
-                if (extracted.text.isBlank()) {
+                if (extracted.text.isBlank() ||
+                    !IndexQualityPolicy.hasEnoughPageCoverage(extracted.usablePages, extracted.totalPages)
+                ) {
                     dao.clearExtractedContent(id, DocumentEntity.INDEX_STATUS_OCR_REQUIRED)
                 } else {
-                    dao.saveExtractedContent(id, document.displayName, extracted.text, extracted.pageCount)
+                    dao.saveExtractedContent(id, document.displayName, extracted.text, extracted.totalPages)
                 }
                 Result.success()
             } catch (_: SecurityException) {
@@ -125,33 +128,41 @@ class DocumentIndexWorker(
             if (pdf.isEncrypted) throw IOException("PDF is still encrypted")
             val stripper = PDFTextStripper()
             val text = StringBuilder()
-            val maxPages = minOf(pdf.numberOfPages, MAX_PAGES)
+            val totalPages = pdf.numberOfPages
+            val pagesToProcess = minOf(totalPages, MAX_PAGES)
+            var usablePages = 0
             val descriptor = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
             PdfRenderer(descriptor).use { renderer ->
-                for (pageNumber in 1..maxPages) {
+                for (pageNumber in 1..pagesToProcess) {
                     stripper.startPage = pageNumber
                     stripper.endPage = pageNumber
-                    var pageText = stripper.getText(pdf).trim()
-                    if (pageText.isBlank() && pageNumber <= MAX_OCR_PAGES && ocrEngine != null) {
+                    val nativeText = stripper.getText(pdf).trim()
+                    var pageText: String? = nativeText.takeIf(IndexQualityPolicy::isUsableText)
+                    // OCR pages whose embedded text is absent or fails the text-quality gate.
+                    if (pageText == null && pageNumber <= MAX_OCR_PAGES && ocrEngine != null) {
                         val bitmap = renderPage(renderer, pageNumber - 1)
                         if (bitmap != null) {
-                            pageText = try {
-                                ocrEngine.recognize(bitmap).trim()
+                            val ocr = try {
+                                ocrEngine.recognize(bitmap)
                             } finally {
                                 bitmap.recycle()
                             }
+                            if (IndexQualityPolicy.isUsableOcr(ocr.text, ocr.confidence)) {
+                                pageText = ocr.text
+                            }
                         }
                     }
-                    if (pageText.isNotBlank()) {
-                        text.append("\n[Page ").append(pageNumber).append("]\n")
+                    if (pageText != null) {
+                        usablePages++
                         val remaining = MAX_TEXT_CHARS - text.length
-                        if (remaining <= 0) break
-                        text.append(pageText.take(remaining))
+                        if (remaining > 0) {
+                            text.append("\n[Page ").append(pageNumber).append("]\n")
+                            text.append(pageText.take((MAX_TEXT_CHARS - text.length).coerceAtLeast(0)))
+                        }
                     }
-                    if (text.length >= MAX_TEXT_CHARS) break
                 }
             }
-            return ExtractedPdf(text.toString(), maxPages)
+            return ExtractedPdf(text.toString(), totalPages, usablePages)
         }
     }
 
@@ -205,7 +216,7 @@ class DocumentIndexWorker(
         return output.toString()
     }
 
-    private data class ExtractedPdf(val text: String, val pageCount: Int)
+    private data class ExtractedPdf(val text: String, val totalPages: Int, val usablePages: Int)
 
     companion object {
         const val KEY_DOCUMENT_ID = "document_id"
