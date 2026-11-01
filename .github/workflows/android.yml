@@ -97,7 +97,7 @@ jobs:
           disable-animations: true
           emulator-boot-timeout: 1200
           emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect
-          script: gradle connectedDebugAndroidTest; test_status=$?; mkdir -p app/build/ci-diagnostics; adb logcat -d -v threadtime > app/build/ci-diagnostics/logcat.txt 2>&1; adb shell dumpsys activity processes > app/build/ci-diagnostics/activity-processes.txt 2>&1; exit $test_status
+          script: if gradle connectedDebugAndroidTest; then test_status=0; else test_status=$?; fi; mkdir -p app/build/ci-diagnostics; adb logcat -d -v threadtime > app/build/ci-diagnostics/logcat.txt 2>&1; adb shell dumpsys activity processes > app/build/ci-diagnostics/activity-processes.txt 2>&1; exit "$test_status"
 
       - name: Upload instrumentation diagnostics
         if: always()
