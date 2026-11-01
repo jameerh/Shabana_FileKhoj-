@@ -33,6 +33,24 @@ class DocumentRepository(context: Context) {
     fun observeDocuments(): Flow<List<DocumentEntity>> = dao.observeAll()
     fun observeProfiles(): Flow<List<DocumentProfileEntity>> = dao.observeProfiles()
     fun observeProfileAssignments(): Flow<List<DocumentProfileAssignmentEntity>> = dao.observeProfileAssignments()
+    fun observeReminders(): Flow<List<DocumentReminderEntity>> = dao.observeReminders()
+    suspend fun setReminder(documentId: Long, label: String, dueAt: Long) {
+        require(dao.findById(documentId) != null) { "Document no longer exists." }
+        val normalized = label.trim()
+        require(normalized.isNotEmpty() && normalized.length <= 80) { "Reminder name must be 1–80 characters." }
+        require(dueAt > 0L) { "Choose a valid reminder date." }
+        dao.upsertReminder(
+            DocumentReminderEntity(
+                documentId = documentId,
+                label = normalized,
+                dueAt = dueAt,
+                enabled = true,
+                notifiedAt = null,
+                createdAt = System.currentTimeMillis()
+            )
+        )
+    }
+    suspend fun removeReminder(documentId: Long) = dao.deleteReminder(documentId)
     suspend fun ensureDefaultProfile(): Long = dao.ensureDefaultProfile()
 
     suspend fun seedDefaultProfilesIfNeeded() = withContext(Dispatchers.IO) {
