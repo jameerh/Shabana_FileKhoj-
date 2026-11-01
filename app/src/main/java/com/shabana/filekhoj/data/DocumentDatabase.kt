@@ -8,8 +8,8 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
-    entities = [DocumentEntity::class, DocumentTextEntity::class, DocumentFtsEntity::class],
-    version = 4,
+    entities = [DocumentEntity::class, DocumentTextEntity::class, DocumentFtsEntity::class, DocumentProfileEntity::class, DocumentProfileAssignmentEntity::class],
+    version = 5,
     exportSchema = false
 )
 abstract class DocumentDatabase : RoomDatabase() {
@@ -61,6 +61,43 @@ abstract class DocumentDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("""
+                    CREATE TABLE IF NOT EXISTS document_profiles (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        name TEXT NOT NULL,
+                        icon TEXT NOT NULL,
+                        colorArgb INTEGER NOT NULL,
+                        isDefault INTEGER NOT NULL,
+                        sortOrder INTEGER NOT NULL,
+                        createdAt INTEGER NOT NULL,
+                        updatedAt INTEGER NOT NULL
+                    )
+                """.trimIndent())
+                database.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_document_profiles_name ON document_profiles(name)")
+                database.execSQL("""
+                    CREATE TABLE IF NOT EXISTS document_profile_assignments (
+                        documentId INTEGER NOT NULL,
+                        profileId INTEGER NOT NULL,
+                        categoryOverride TEXT,
+                        PRIMARY KEY(documentId, profileId),
+                        FOREIGN KEY(documentId) REFERENCES documents(id) ON UPDATE NO ACTION ON DELETE CASCADE,
+                        FOREIGN KEY(profileId) REFERENCES document_profiles(id) ON UPDATE NO ACTION ON DELETE CASCADE
+                    )
+                """.trimIndent())
+                database.execSQL("CREATE INDEX IF NOT EXISTS index_document_profile_assignments_profileId ON document_profile_assignments(profileId)")
+                database.execSQL("CREATE INDEX IF NOT EXISTS index_document_profile_assignments_documentId ON document_profile_assignments(documentId)")
+                database.execSQL("""
+                    INSERT INTO document_profiles (id, name, icon, colorArgb, isDefault, sortOrder, createdAt, updatedAt)
+                    VALUES (1, 'Personal', 'person', -16284611, 1, 0,
+                        CAST(strftime('%s','now') AS INTEGER) * 1000,
+                        CAST(strftime('%s','now') AS INTEGER) * 1000)
+                """.trimIndent())
+                database.execSQL("INSERT OR IGNORE INTO document_profile_assignments (documentId, profileId, categoryOverride) SELECT id, 1, category FROM documents")
+            }
+        }
+
         @Volatile
         private var instance: DocumentDatabase? = null
 
@@ -71,7 +108,7 @@ abstract class DocumentDatabase : RoomDatabase() {
                     DocumentDatabase::class.java,
                     "filekhoj.db"
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
                     .build()
                     .also { instance = it }
             }
