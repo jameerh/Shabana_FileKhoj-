@@ -80,6 +80,7 @@ class BackupRestoreManager(context: Context) {
         check(stagingDir.mkdirs()) { "Could not create private restore staging directory." }
         val stagedEntries = linkedMapOf<String, File>()
         val finalFiles = mutableListOf<File>()
+        var databaseCommitted = false
         try {
             var manifestBytes: ByteArray? = null
             var expandedBytes = 0L
@@ -187,6 +188,7 @@ class BackupRestoreManager(context: Context) {
 
             // All payloads have been staged and checked. One Room transaction prevents partial rows.
             val insertedIds = dao.insertDocumentsAtomically(pendingDocuments)
+            databaseCommitted = true
             var restored = 0
             var skipped = 0
             var restoredBytes = 0L
@@ -213,7 +215,7 @@ class BackupRestoreManager(context: Context) {
             return RestoreResult(restored, skipped, restoredBytes)
         } catch (error: Exception) {
             // If validation or the transactional database insert fails, do not leave staged copies behind.
-            finalFiles.forEach { it.delete() }
+            if (!databaseCommitted) finalFiles.forEach { it.delete() }
             throw error
         } finally {
             stagingDir.deleteRecursively()
