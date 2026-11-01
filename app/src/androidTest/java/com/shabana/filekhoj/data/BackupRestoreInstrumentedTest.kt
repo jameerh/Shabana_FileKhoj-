@@ -105,6 +105,46 @@ class BackupRestoreInstrumentedTest {
     }
 
     @Test
+    fun versionTwoBackupCannotDropPayloadIntegrityMetadata() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val dao = DocumentDatabase.getInstance(context).documentDao()
+        val manager = BackupRestoreManager(context)
+        val token = UUID.randomUUID().toString()
+        val source = File(context.filesDir, "documents/backup-missing-hash-$token.txt")
+        val archive = File(context.cacheDir, "backup-missing-hash-$token.zip")
+        val stripped = File(context.cacheDir, "backup-missing-hash-stripped-$token.zip")
+        val beforeIds = dao.getAllForBackup().map { it.id }.toSet()
+        try {
+            check(source.parentFile?.mkdirs() == true || source.parentFile?.isDirectory == true)
+            source.writeText("Version two payload integrity metadata is mandatory")
+            val sourceId = dao.insert(
+                DocumentEntity(
+                    displayName = "backup-missing-hash-$token.txt",
+                    mimeType = "text/plain",
+                    sizeBytes = source.length(),
+                    sourceUri = "content://filekhoj-test/$token",
+                    dateAdded = System.currentTimeMillis(),
+                    sourceLastModified = null,
+                    managedPath = source.absolutePath
+                )
+            )
+            assertTrue(sourceId > 0L)
+            manager.createBackup(archive)
+            rewriteWithoutPayloadIntegrityMetadata(archive, stripped)
+
+            val idsBeforeRestore = dao.getAllForBackup().map { it.id }.toSet()
+            val failure = runCatching { manager.restoreBackup(stripped) }.exceptionOrNull()
+            assertTrue("Version 2 archive without payload hashes must be rejected.", failure is IllegalArgumentException)
+            assertEquals(idsBeforeRestore, dao.getAllForBackup().map { it.id }.toSet())
+        } finally {
+            cleanup(context, dao, beforeIds)
+            archive.delete()
+            stripped.delete()
+            source.delete()
+        }
+    }
+
+    @Test
     fun forgedVerifiedSignatureMetadataIsResetOnRestore() = runBlocking {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val dao = DocumentDatabase.getInstance(context).documentDao()
@@ -203,6 +243,31 @@ class BackupRestoreInstrumentedTest {
                             row.remove("payloadSizeBytes")
                             row.remove("isEncryptedSource")
                             row.remove("isStoredDecrypted")
+                        }
+                        bytes = manifest.toString().toByteArray(Charsets.UTF_8)
+                    }
+                    output.write(bytes)
+                    output.closeEntry()
+                    input.closeEntry()
+                }
+            }
+        }
+    }
+
+    private fun rewriteWithoutPayloadIntegrityMetadata(source: File, destination: File) {
+        ZipInputStream(source.inputStream().buffered()).use { input ->
+            ZipOutputStream(destination.outputStream().buffered()).use { output ->
+                while (true) {
+                    val entry = input.nextEntry ?: break
+                    output.putNextEntry(ZipEntry(entry.name))
+                    var bytes = input.readBytes()
+                    if (entry.name == BackupRestoreManager.MANIFEST) {
+                        val manifest = JSONObject(String(bytes, Charsets.UTF_8))
+                        val rows = manifest.getJSONArray("documents")
+                        for (index in 0 until rows.length()) {
+                            val row = rows.getJSONObject(index)
+                            row.remove("payloadSha256")
+                            row.remove("payloadSizeBytes")
                         }
                         bytes = manifest.toString().toByteArray(Charsets.UTF_8)
                     }
