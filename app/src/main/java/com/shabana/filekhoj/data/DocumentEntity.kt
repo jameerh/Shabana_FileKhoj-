@@ -38,6 +38,7 @@ data class DocumentEntity(
         const val INDEX_STATUS_NOT_INDEXED = "NOT_INDEXED"
         const val INDEX_STATUS_QUEUED = "QUEUED"
         const val INDEX_STATUS_INDEXED = "INDEXED"
+        const val INDEX_STATUS_PARTIALLY_INDEXED = "PARTIALLY_INDEXED"
         const val INDEX_STATUS_FAILED = "FAILED"
         const val INDEX_STATUS_INDEXING = "INDEXING"
         const val INDEX_STATUS_OCR_REQUIRED = "OCR_REQUIRED"
