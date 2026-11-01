@@ -47,6 +47,18 @@ interface DocumentDao {
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertProfileAssignments(assignments: List<DocumentProfileAssignmentEntity>)
 
+    @Query("DELETE FROM document_profile_assignments WHERE profileId = :profileId AND documentId IN (:documentIds)")
+    suspend fun removeDocumentsFromProfile(documentIds: List<Long>, profileId: Long): Int
+
+    @Transaction
+    suspend fun moveDocumentsBetweenProfiles(documentIds: List<Long>, fromProfileId: Long?, toProfileId: Long) {
+        if (documentIds.isEmpty()) return
+        insertProfileAssignments(documentIds.distinct().map { DocumentProfileAssignmentEntity(it, toProfileId) })
+        if (fromProfileId != null && fromProfileId != toProfileId) {
+            removeDocumentsFromProfile(documentIds.distinct(), fromProfileId)
+        }
+    }
+
     @Query("DELETE FROM document_profile_assignments WHERE documentId = :documentId AND profileId = :profileId")
     suspend fun removeProfileAssignment(documentId: Long, profileId: Long): Int
 
