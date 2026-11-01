@@ -83,6 +83,9 @@ interface DocumentDao {
         }
     }
 
+    @Query("SELECT categoryOverride FROM document_profile_assignments WHERE documentId = :documentId AND profileId = :profileId LIMIT 1")
+    suspend fun getProfileCategory(documentId: Long, profileId: Long): String?
+
     @Query("DELETE FROM document_profile_assignments WHERE documentId = :documentId AND profileId = :profileId")
     suspend fun removeProfileAssignment(documentId: Long, profileId: Long): Int
 
