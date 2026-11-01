@@ -1108,6 +1108,42 @@ private fun FileKhojApp(
                         }
                     }
                     item {
+                        Row(
+                            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(vertical = 2.dp),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            FilterChip(
+                                selected = activeWorkspaceId == null,
+                                onClick = {
+                                    activeWorkspaceId = null
+                                    workspacePrefs.edit().putLong("active_profile_id", 0L).apply()
+                                },
+                                label = { Text("All profiles") }
+                            )
+                            workspaceProfiles.forEach { profile ->
+                                FilterChip(
+                                    selected = activeWorkspaceId == profile.id,
+                                    onClick = {
+                                        activeWorkspaceId = profile.id
+                                        workspacePrefs.edit().putLong("active_profile_id", profile.id)
+                                            .putLong("last_import_profile_id", profile.id).apply()
+                                    },
+                                    label = {
+                                        val glyph = when (profile.icon) {
+                                            "person" -> "👤"; "store" -> "🏪"; "medical" -> "🩺"
+                                            "farm" -> "🌾"; "home" -> "🏠"; "family" -> "👨‍👩‍👧"
+                                            "service" -> "🏛️"; "education" -> "🎓"; "vehicle" -> "🚗"
+                                            else -> "📁"
+                                        }
+                                        Text("$glyph ${profile.name}")
+                                    }
+                                )
+                            }
+                            TextButton(onClick = { showWorkspaceManager = true }) { Text("＋ Manage") }
+                        }
+                    }
+                    item {
                         Card(shape = RoundedCornerShape(22.dp),
                             colors = CardDefaults.cardColors(containerColor = Color.White)) {
                             Column(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 7.dp),
