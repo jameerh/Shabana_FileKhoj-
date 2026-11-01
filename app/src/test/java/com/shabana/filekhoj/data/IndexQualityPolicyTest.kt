@@ -42,6 +42,20 @@ class IndexQualityPolicyTest {
     }
 
     @Test
+    fun marksPdfPartialWhenPageProcessingLimitLeavesUnvisitedPages() {
+        val text = "Aadhaar card आधार कार्ड अर्जदार नाव"
+        assertEquals(
+            DocumentEntity.INDEX_STATUS_PARTIALLY_INDEXED,
+            IndexQualityPolicy.pdfIndexStatus(
+                text = text,
+                usablePages = 2_000,
+                totalPages = 2_200,
+                processedPages = 2_000
+            )
+        )
+    }
+
+    @Test
     fun onlyMarksPdfIndexedWhenCoverageGatePasses() {
         val text = "Aadhaar card आधार कार्ड अर्जदार नाव"
         assertEquals(
