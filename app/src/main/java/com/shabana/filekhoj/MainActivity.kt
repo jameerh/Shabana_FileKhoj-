@@ -104,6 +104,7 @@ import com.shabana.filekhoj.data.DocumentEntity
 import com.shabana.filekhoj.data.DocumentProfileEntity
 import com.shabana.filekhoj.data.DocumentProfileAssignmentEntity
 import com.shabana.filekhoj.data.DocumentProfileDefaults
+import com.shabana.filekhoj.data.ProfileSuggestion
 import com.shabana.filekhoj.data.DocumentRepository
 import com.shabana.filekhoj.pdf.PdfEditorScreen
 import java.io.File
@@ -793,6 +794,14 @@ private fun FileKhojApp(
     var draftFavouritesOnly by remember { mutableStateOf(false) }
     var draftPreviewMode by remember { mutableStateOf(PreviewMode.MEDIUM) }
     var documents by remember { mutableStateOf(emptyList<DocumentEntity>()) }
+    var workspaceProfiles by remember { mutableStateOf(emptyList<DocumentProfileEntity>()) }
+    var workspaceAssignments by remember { mutableStateOf(emptyList<DocumentProfileAssignmentEntity>()) }
+    val workspacePrefs = remember(context) { context.getSharedPreferences("filekhoj_document_profiles", Context.MODE_PRIVATE) }
+    var activeWorkspaceId by remember { mutableStateOf(workspacePrefs.getLong("active_profile_id", 1L).takeIf { it > 0L }) }
+    var showWorkspaceManager by remember { mutableStateOf(false) }
+    var workspaceNameDraft by remember { mutableStateOf("") }
+    var workspaceEditId by remember { mutableStateOf<Long?>(null) }
+    var showMoveProfileDialog by remember { mutableStateOf(false) }
     var fullTextMatchIds by remember { mutableStateOf<Set<Long>>(emptySet()) }
     var fullTextMatchQuery by remember { mutableStateOf("") }
     var typeFilter by remember { mutableStateOf(TypeFilter.ALL) }
@@ -848,6 +857,20 @@ private fun FileKhojApp(
     }
 
     LaunchedEffect(repository) {
+        repository.seedDefaultProfilesIfNeeded()
+        repository.observeProfiles().collect { incoming ->
+            workspaceProfiles = incoming
+            if (activeWorkspaceId != null && incoming.none { it.id == activeWorkspaceId }) {
+                val fallback = incoming.firstOrNull { it.isDefault }?.id ?: incoming.firstOrNull()?.id
+                activeWorkspaceId = fallback
+                workspacePrefs.edit().putLong("active_profile_id", fallback ?: 0L).apply()
+            }
+        }
+    }
+    LaunchedEffect(repository) {
+        repository.observeProfileAssignments().collect { workspaceAssignments = it }
+    }
+    LaunchedEffect(repository) {
         repository.observeDocuments().collect { incoming ->
             documents = incoming
             selectedIds = selectedIds.intersect(incoming.map { it.id }.toSet())
@@ -868,11 +891,12 @@ private fun FileKhojApp(
     }
     val filteredDocuments = remember(
         query, documents, typeFilter, dateFilter, signatureFilter, favouritesOnly,
-        selectedCategory, fullTextMatchIds, fullTextMatchQuery
+        selectedCategory, fullTextMatchIds, fullTextMatchQuery, workspaceAssignments, activeWorkspaceId
     ) {
         val now = System.currentTimeMillis()
         documents.filter { document ->
             val mime = document.mimeType.lowercase(Locale.ROOT)
+            val matchesWorkspace = activeWorkspaceId == null || workspaceAssignments.any { it.documentId == document.id && it.profileId == activeWorkspaceId }
             val matchesQuery = query.isBlank() || document.displayName.contains(query.trim(), true) ||
                 (fullTextMatchQuery == query && document.id in fullTextMatchIds)
             val matchesType = when (typeFilter) {
@@ -900,7 +924,7 @@ private fun FileKhojApp(
                     DocumentEntity.SIGNATURE_STATUS_INVALID, DocumentEntity.SIGNATURE_STATUS_INCOMPLETE
                 )
             }
-            matchesQuery && matchesType && matchesDate &&
+            matchesWorkspace && matchesQuery && matchesType && matchesDate &&
                 (!favouritesOnly || document.isFavourite) &&
                 (selectedCategory == "All categories" || document.category == selectedCategory) &&
                 matchesSignature
@@ -979,6 +1003,10 @@ private fun FileKhojApp(
                         dateFilter = DateFilter.ANY
                         signatureFilter = SignatureFilter.ANY
                         selectedCategory = "All categories"
+                        scope.launch { drawerState.close() }
+                    })
+                    NavigationDrawerItem(label = { Text("▦  Document workspaces") }, selected = false, onClick = {
+                        showWorkspaceManager = true
                         scope.launch { drawerState.close() }
                     })
                     NavigationDrawerItem(label = { Text("★  Favourites") }, selected = false, onClick = {
