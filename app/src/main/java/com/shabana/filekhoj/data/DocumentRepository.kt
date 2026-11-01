@@ -34,6 +34,32 @@ class DocumentRepository(context: Context) {
     fun observeProfiles(): Flow<List<DocumentProfileEntity>> = dao.observeProfiles()
     fun observeProfileAssignments(): Flow<List<DocumentProfileAssignmentEntity>> = dao.observeProfileAssignments()
     suspend fun ensureDefaultProfile(): Long = dao.ensureDefaultProfile()
+
+    suspend fun seedDefaultProfilesIfNeeded() = withContext(Dispatchers.IO) {
+        val prefs = appContext.getSharedPreferences("filekhoj_document_profiles", Context.MODE_PRIVATE)
+        if (prefs.getBoolean("builtins_seeded_v1", false)) return@withContext
+        val existing = dao.getProfiles()
+        if (existing.isEmpty()) dao.ensureDefaultProfile()
+        val currentNames = dao.getProfiles().map { it.name.lowercase(java.util.Locale.ROOT) }.toMutableSet()
+        DocumentProfileDefaults.profiles.forEach { profile ->
+            if (profile.name.lowercase(java.util.Locale.ROOT) !in currentNames) {
+                val now = System.currentTimeMillis()
+                dao.insertProfile(
+                    DocumentProfileEntity(
+                        name = profile.name, icon = profile.icon, colorArgb = profile.colorArgb,
+                        isDefault = profile.name == DocumentProfileEntity.DEFAULT_NAME,
+                        sortOrder = profile.sortOrder, createdAt = now, updatedAt = now
+                    )
+                )
+            }
+        }
+        val defaultId = dao.ensureDefaultProfile()
+        dao.getAllForBackup().forEach { document ->
+            dao.insertProfileAssignment(DocumentProfileAssignmentEntity(document.id, defaultId, document.category))
+        }
+        prefs.edit().putBoolean("builtins_seeded_v1", true).commit()
+    }
+
     suspend fun createProfile(name: String, icon: String = "folder", colorArgb: Int = 0xFF07583D.toInt()): Long {
         val normalized = name.trim()
         require(normalized.isNotEmpty()) { "Profile name cannot be empty." }
@@ -61,7 +87,12 @@ class DocumentRepository(context: Context) {
     }
     suspend fun assignDocumentsToProfile(documentIds: Collection<Long>, profileId: Long) {
         require(dao.getProfile(profileId) != null) { "Destination profile no longer exists." }
-        dao.insertProfileAssignments(documentIds.distinct().map { DocumentProfileAssignmentEntity(it, profileId) })
+        dao.moveDocumentsBetweenProfiles(documentIds.distinct(), null, profileId)
+    }
+    suspend fun moveDocumentsToProfile(documentIds: Collection<Long>, sourceProfileId: Long?, targetProfileId: Long) {
+        require(dao.getProfile(targetProfileId) != null) { "Destination profile no longer exists." }
+        if (sourceProfileId != null) require(dao.getProfile(sourceProfileId) != null) { "Source profile no longer exists." }
+        dao.moveDocumentsBetweenProfiles(documentIds.distinct(), sourceProfileId, targetProfileId)
     }
     suspend fun removeDocumentFromProfile(documentId: Long, profileId: Long) {
         val assignments = dao.getProfileIdsForDocument(documentId)
