@@ -22,6 +22,22 @@ class BackupFilePromotionTest {
     }
 
     @Test
+    fun recoversPreviousBackupWhenReplacementTemporaryIsInvalid() {
+        val directory = createTempDirectory()
+        try {
+            val destination = File(directory, "latest.zip")
+            val previous = File(directory, "latest.zip.previous").apply { writeText("known-good") }
+            val temporary = File(directory, "working.zip").apply { writeText("") }
+
+            assertFalse(BackupFilePromotion.promote(temporary, destination))
+            assertEquals("known-good", destination.readText())
+            assertFalse(previous.exists())
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    @Test
     fun validTemporaryArchiveReplacesPreviousBackup() {
         val directory = createTempDirectory()
         try {

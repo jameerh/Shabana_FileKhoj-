@@ -89,10 +89,13 @@ class SecurePdfImporter(context: Context) {
                             destination.delete()
                             return PdfPreparationResult.Failed(PdfPreparationFailure.STORAGE_UNAVAILABLE)
                         }
+                        // Decryption rewrites the PDF bytes. Signature results from the
+                        // encrypted source must never be presented as verification of this
+                        // derivative; only the original source can retain that status.
                         PdfPreparationResult.DecryptedCopy(
                             destination,
-                            signatureResult.status,
-                            signatureResult.signatureCount
+                            DocumentEntity.SIGNATURE_STATUS_UNKNOWN,
+                            0
                         )
                     } catch (_: Exception) {
                         destination.delete()
