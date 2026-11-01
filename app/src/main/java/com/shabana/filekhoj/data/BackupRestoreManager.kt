@@ -147,12 +147,20 @@ class BackupRestoreManager(context: Context) {
                 val staged = stagedEntries[entryName]
                     ?: throw IllegalArgumentException("Backup is incomplete: missing document payload.")
                 val expectedHash = row.optString("payloadSha256").takeIf(String::isNotBlank)
+                val expectedSize = row.optLong("payloadSizeBytes", -1L)
+                if (archiveVersion >= 2) {
+                    require(expectedHash != null && expectedHash.matches(Regex("[0-9a-fA-F]{64}"))) {
+                        "Version 2 backup is missing a valid SHA-256 payload digest."
+                    }
+                    require(expectedSize >= 0L) {
+                        "Version 2 backup is missing a payload byte count."
+                    }
+                }
                 if (expectedHash != null) {
                     require(expectedHash.equals(sha256(staged), ignoreCase = true)) {
                         "Backup document integrity check failed."
                     }
                 }
-                val expectedSize = row.optLong("payloadSizeBytes", -1L)
                 if (expectedSize >= 0L) {
                     require(expectedSize == staged.length()) { "Backup document size check failed." }
                 }
