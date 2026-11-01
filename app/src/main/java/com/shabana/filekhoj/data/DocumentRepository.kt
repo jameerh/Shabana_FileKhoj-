@@ -55,11 +55,7 @@ class DocumentRepository(context: Context) {
     }
 
     suspend fun searchDocuments(query: String): List<DocumentEntity> = withContext(Dispatchers.IO) {
-        val terms = query.trim().split(Regex("\\s+")).filter(String::isNotBlank)
-        if (terms.isEmpty()) return@withContext emptyList()
-        val ftsQuery = terms.joinToString(" AND ") { term ->
-            "\"${term.replace("\"", "\"\"")}\""
-        }
+        val ftsQuery = SearchQueryNormalizer.toFtsQuery(query) ?: return@withContext emptyList()
         try {
             dao.searchFullText(ftsQuery)
         } catch (_: Exception) {
