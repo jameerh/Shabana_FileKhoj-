@@ -11,6 +11,105 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface DocumentDao {
+    @Query("SELECT * FROM document_profiles ORDER BY sortOrder ASC, id ASC")
+    fun observeProfiles(): Flow<List<DocumentProfileEntity>>
+
+    @Query("SELECT * FROM document_profiles ORDER BY sortOrder ASC, id ASC")
+    suspend fun getProfiles(): List<DocumentProfileEntity>
+
+    @Query("SELECT * FROM document_profiles WHERE id = :id LIMIT 1")
+    suspend fun getProfile(id: Long): DocumentProfileEntity?
+
+    @Query("SELECT * FROM document_profiles WHERE isDefault = 1 LIMIT 1")
+    suspend fun getDefaultProfile(): DocumentProfileEntity?
+
+    @Insert(onConflict = OnConflictStrategy.ABORT)
+    suspend fun insertProfile(profile: DocumentProfileEntity): Long
+
+    @Update
+    suspend fun updateProfile(profile: DocumentProfileEntity)
+
+    @Delete
+    suspend fun deleteProfile(profile: DocumentProfileEntity)
+
+    @Query("SELECT * FROM document_profile_assignments")
+    fun observeProfileAssignments(): Flow<List<DocumentProfileAssignmentEntity>>
+
+    @Query("SELECT * FROM document_profile_assignments")
+    suspend fun getAllProfileAssignments(): List<DocumentProfileAssignmentEntity>
+
+    @Query("SELECT * FROM document_reminders ORDER BY dueAt ASC")
+    fun observeReminders(): Flow<List<DocumentReminderEntity>>
+
+    @Query("SELECT * FROM document_reminders")
+    suspend fun getAllReminders(): List<DocumentReminderEntity>
+
+    @Query("SELECT * FROM document_reminders WHERE documentId = :documentId LIMIT 1")
+    suspend fun getReminder(documentId: Long): DocumentReminderEntity?
+
+    @Query("SELECT * FROM document_reminders WHERE enabled = 1 AND dueAt <= :horizon AND notifiedAt IS NULL")
+    suspend fun getDueReminders(horizon: Long): List<DocumentReminderEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertReminder(reminder: DocumentReminderEntity)
+
+    @Query("UPDATE document_reminders SET notifiedAt = :notifiedAt WHERE documentId = :documentId")
+    suspend fun markReminderNotified(documentId: Long, notifiedAt: Long)
+
+    @Query("DELETE FROM document_reminders WHERE documentId = :documentId")
+    suspend fun deleteReminder(documentId: Long)
+
+    @Query("SELECT profileId FROM document_profile_assignments WHERE documentId = :documentId")
+    suspend fun getProfileIdsForDocument(documentId: Long): List<Long>
+
+    @Query("SELECT documentId FROM document_profile_assignments WHERE profileId = :profileId")
+    suspend fun getDocumentIdsForProfile(profileId: Long): List<Long>
+
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertProfileAssignment(assignment: DocumentProfileAssignmentEntity)
+
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertProfileAssignments(assignments: List<DocumentProfileAssignmentEntity>)
+
+    @Query("DELETE FROM document_profile_assignments WHERE profileId = :profileId AND documentId IN (:documentIds)")
+    suspend fun removeDocumentsFromProfile(documentIds: List<Long>, profileId: Long): Int
+
+    @Transaction
+    suspend fun moveDocumentsBetweenProfiles(documentIds: List<Long>, fromProfileId: Long?, toProfileId: Long) {
+        if (documentIds.isEmpty()) return
+        insertProfileAssignments(documentIds.distinct().map { DocumentProfileAssignmentEntity(it, toProfileId) })
+        if (fromProfileId != null && fromProfileId != toProfileId) {
+            removeDocumentsFromProfile(documentIds.distinct(), fromProfileId)
+        }
+    }
+
+    @Query("SELECT categoryOverride FROM document_profile_assignments WHERE documentId = :documentId AND profileId = :profileId LIMIT 1")
+    suspend fun getProfileCategory(documentId: Long, profileId: Long): String?
+
+    @Query("DELETE FROM document_profile_assignments WHERE documentId = :documentId AND profileId = :profileId")
+    suspend fun removeProfileAssignment(documentId: Long, profileId: Long): Int
+
+    @Query("UPDATE document_profile_assignments SET categoryOverride = :category WHERE documentId = :documentId AND profileId = :profileId")
+    suspend fun updateProfileCategory(documentId: Long, profileId: Long, category: String?)
+
+    @Query("""
+        SELECT documents.* FROM documents
+        INNER JOIN document_profile_assignments ON document_profile_assignments.documentId = documents.id
+        WHERE document_profile_assignments.profileId = :profileId
+        ORDER BY documents.dateAdded DESC, documents.id DESC
+    """)
+    fun observeDocumentsForProfile(profileId: Long): Flow<List<DocumentEntity>>
+
+    @Query("""
+        SELECT documents.* FROM documents
+        INNER JOIN document_fts ON document_fts.rowid = documents.id
+        INNER JOIN document_profile_assignments ON document_profile_assignments.documentId = documents.id
+        WHERE document_profile_assignments.profileId = :profileId
+          AND document_fts MATCH :ftsQuery
+        ORDER BY documents.dateAdded DESC, documents.id DESC
+    """)
+    suspend fun searchFullTextInProfile(ftsQuery: String, profileId: Long): List<DocumentEntity>
+
     @Query("SELECT * FROM documents ORDER BY dateAdded DESC, id DESC")
     fun observeAll(): Flow<List<DocumentEntity>>
 
@@ -34,13 +133,66 @@ interface DocumentDao {
     @Query("SELECT * FROM documents WHERE sourceUri = :sourceUri LIMIT 1")
     suspend fun findBySourceUri(sourceUri: String): DocumentEntity?
 
+    @Query("SELECT * FROM documents WHERE contentHash = :contentHash LIMIT 1")
+    suspend fun findByContentHash(contentHash: String): DocumentEntity?
+
     @Query("SELECT * FROM documents WHERE id = :id LIMIT 1")
     suspend fun findById(id: Long): DocumentEntity?
+
+    @Transaction
+    suspend fun ensureDefaultProfile(): Long {
+        val existing = getDefaultProfile()
+        if (existing != null) return existing.id
+        val now = System.currentTimeMillis()
+        return insertProfile(
+            DocumentProfileEntity(
+                name = "Personal",
+                icon = "person",
+                colorArgb = -16284611,
+                isDefault = true,
+                sortOrder = 0,
+                createdAt = now,
+                updatedAt = now
+            )
+        )
+    }
 
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insert(document: DocumentEntity): Long
 
-    /** Inserts a restore batch in one Room transaction so partial restores cannot commit. */
+    /** Inserts a restore batch and its workspace memberships atomically. */
+    @Transaction
+    suspend fun insertDocumentsWithProfileAssignmentsAtomically(
+        documents: List<DocumentEntity>,
+        assignmentsByDocument: List<List<Pair<Long, String?>>>,
+        defaultProfileId: Long,
+        remindersByDocument: List<Pair<String, Long>?> = emptyList()
+    ): List<Long> {
+        return documents.mapIndexed { index, document ->
+            val id = insert(document)
+            if (id > 0L) {
+                val requested = assignmentsByDocument.getOrNull(index).orEmpty()
+                val safeAssignments = if (requested.isEmpty()) listOf(defaultProfileId to document.category)
+                    else requested
+                insertProfileAssignments(
+                    safeAssignments.distinctBy { it.first }.map { (profileId, category) ->
+                        DocumentProfileAssignmentEntity(id, profileId, category)
+                    }
+                )
+                remindersByDocument.getOrNull(index)?.let { (label, dueAt) ->
+                    upsertReminder(
+                        DocumentReminderEntity(
+                            documentId = id, label = label, dueAt = dueAt,
+                            enabled = true, notifiedAt = null, createdAt = System.currentTimeMillis()
+                        )
+                    )
+                }
+            }
+            id
+        }
+    }
+
+    /** Kept for callers that restore only document rows. */
     @Transaction
     suspend fun insertDocumentsAtomically(documents: List<DocumentEntity>): List<Long> =
         documents.map { insert(it) }

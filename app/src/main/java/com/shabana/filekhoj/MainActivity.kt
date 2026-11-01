@@ -1,5 +1,7 @@
 package com.shabana.filekhoj
 
+import android.Manifest
+import android.app.DatePickerDialog
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.ClipData
@@ -101,11 +103,18 @@ import com.google.android.gms.common.api.ApiException
 import com.google.android.gms.common.api.Scope
 import com.shabana.filekhoj.data.ScheduledBackupWorker
 import com.shabana.filekhoj.data.DocumentEntity
+import com.shabana.filekhoj.data.DocumentProfileEntity
+import com.shabana.filekhoj.data.DocumentProfileAssignmentEntity
+import com.shabana.filekhoj.data.DocumentProfileDefaults
+import com.shabana.filekhoj.data.DocumentReminderEntity
+import com.shabana.filekhoj.data.ExpiryReminderWorker
+import com.shabana.filekhoj.data.ProfileSuggestion
 import com.shabana.filekhoj.data.DocumentRepository
 import com.shabana.filekhoj.pdf.PdfEditorScreen
 import java.io.File
 import java.text.DateFormat
 import java.util.Date
+import java.util.Calendar
 import java.util.Locale
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -126,11 +135,14 @@ private enum class PreviewMode(val label: String) {
 
 class MainActivity : ComponentActivity() {
     private lateinit var documentPicker: ActivityResultLauncher<Array<String>>
+    private lateinit var importFolderLauncher: ActivityResultLauncher<Uri?>
     private lateinit var pdfExportLauncher: ActivityResultLauncher<String>
     private lateinit var exportFolderLauncher: ActivityResultLauncher<Uri?>
+    private companion object { const val MAX_FOLDER_IMPORT_FILES = 5_000 }
     private lateinit var backupExportLauncher: ActivityResultLauncher<String>
     private lateinit var backupRestoreLauncher: ActivityResultLauncher<Array<String>>
     private lateinit var driveSignInLauncher: ActivityResultLauncher<Intent>
+    private lateinit var notificationPermissionLauncher: ActivityResultLauncher<String>
     private var pendingBackupFile: File? = null
     private var pendingPdfExportFile: File? = null
     private var pendingBulkExportDocuments: List<DocumentEntity> = emptyList()
@@ -146,6 +158,11 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         repository = DocumentRepository(applicationContext)
+        ExpiryReminderWorker.schedule(applicationContext)
+        notificationPermissionLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            importStatus.value = if (granted) "Document reminders are enabled." else
+                "Notifications are disabled. Reminders remain saved and can be reviewed in FileKhoj."
+        }
         driveAccount.value = GoogleDriveBackupManager(applicationContext).signedInEmail()
         driveSignInLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
             if (result.resultCode == RESULT_OK) {
@@ -233,10 +250,9 @@ class MainActivity : ComponentActivity() {
                                 contentResolver, rootUri, document.mimeType.ifBlank { "application/octet-stream" },
                                 uniqueExportName(treeUri, document.displayName)
                             ) ?: throw IllegalStateException("Destination provider refused to create the file")
-                            val input = if (document.isStoredDecrypted) {
-                                val file = document.managedPath?.let(::File)
-                                    ?: throw IllegalStateException("Private unlocked copy is missing")
-                                if (!file.isFile) throw IllegalStateException("Private unlocked copy is missing")
+                            val input = if (!document.managedPath.isNullOrBlank()) {
+                                val file = File(document.managedPath)
+                                if (!file.isFile) throw IllegalStateException("Private FileKhoj copy is missing")
                                 file.inputStream()
                             } else {
                                 contentResolver.openInputStream(Uri.parse(document.sourceUri))
@@ -265,6 +281,36 @@ class MainActivity : ComponentActivity() {
             }
         }
 
+        importFolderLauncher = registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { treeUri ->
+            if (treeUri == null) {
+                importStatus.value = "Folder import cancelled. No files were changed."
+                return@registerForActivityResult
+            }
+            try {
+                contentResolver.takePersistableUriPermission(treeUri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            } catch (_: SecurityException) {
+                // Some providers grant only temporary access; scanning still proceeds now.
+            }
+            lifecycleScope.launch {
+                importStatus.value = "Scanning the selected folder for supported documents…"
+                try {
+                    val selected = withContext(Dispatchers.IO) { collectImportableUris(treeUri) }
+                    if (selected.isEmpty()) {
+                        importStatus.value = "No supported documents were found in the selected folder."
+                    } else {
+                        repository.seedDefaultProfilesIfNeeded()
+                        val destinationProfile = activeWorkspaceDestinationId()
+                        val result = withContext(Dispatchers.IO) {
+                            repository.importDocuments(selected, profileId = destinationProfile, copyToManagedStorage = true)
+                        }
+                        importStatus.value = "Folder import complete: ${result.imported} imported, ${result.alreadyPresent} already present, ${result.failed} failed. Scanned up to $MAX_FOLDER_IMPORT_FILES files."
+                    }
+                } catch (error: Exception) {
+                    importStatus.value = "Folder import failed: ${error.message ?: error.javaClass.simpleName}"
+                }
+            }
+        }
+
         documentPicker = registerForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { selectedUris ->
             if (selectedUris.isNullOrEmpty()) return@registerForActivityResult
             selectedUris.forEach { uri ->
@@ -276,7 +322,7 @@ class MainActivity : ComponentActivity() {
             }
             lifecycleScope.launch {
                 importStatus.value = "Importing ${selectedUris.size} document(s)…"
-                val result = repository.importDocuments(selectedUris)
+                val result = repository.importDocuments(selectedUris, profileId = activeWorkspaceDestinationId())
                 passwordQueue.value = result.passwordRequiredUris
                 passwordError.value = null
                 importStatus.value = buildString {
@@ -357,7 +403,7 @@ class MainActivity : ComponentActivity() {
                         copiedBytes
                     }
 
-                    val importResult = repository.importDocuments(listOf(destinationUri))
+                    val importResult = repository.importDocuments(listOf(destinationUri), profileId = activeWorkspaceDestinationId())
                     val message = when {
                         importResult.imported > 0 ->
                             "PDF saved ($resultMessage bytes) and added to your FileKhoj library."
@@ -401,7 +447,7 @@ class MainActivity : ComponentActivity() {
                 passwordError = passwordError.value,
                 onPasswordSubmit = { uri, password ->
                     lifecycleScope.launch {
-                        val result = repository.importDocuments(listOf(uri), mapOf(uri.toString() to password))
+                        val result = repository.importDocuments(listOf(uri), mapOf(uri.toString() to password), profileId = activeWorkspaceDestinationId())
                         if (result.passwordRequiredUris.isNotEmpty()) {
                             passwordError.value = "Incorrect password or unsupported PDF encryption. Try again."
                         } else {
@@ -444,6 +490,12 @@ class MainActivity : ComponentActivity() {
                         "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
                     ))
                 },
+                onImportFolderClick = { importFolderLauncher.launch(null) },
+                onRequestNotificationPermission = {
+                    if (android.os.Build.VERSION.SDK_INT >= 33 &&
+                        checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED
+                    ) notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                },
                 onOpenDocument = ::openDocument,
                 onPdfSaveRequest = ::launchPdfExport,
                 onSaveSelected = { selected ->
@@ -460,6 +512,7 @@ class MainActivity : ComponentActivity() {
                 onStatus = { importStatus.value = it }
             )
         }
+        handleIncomingShare(intent)
     }
 
     private fun connectGoogleDrive() {
@@ -572,6 +625,102 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+
+    private fun activeWorkspaceDestinationId(): Long {
+        val workspacePrefs = getSharedPreferences("filekhoj_document_profiles", Context.MODE_PRIVATE)
+        val active = workspacePrefs.getLong("active_profile_id", 1L)
+        return if (active > 0L) active else workspacePrefs.getLong("last_import_profile_id", 1L)
+    }
+
+    private fun handleIncomingShare(sharedIntent: Intent?) {
+        if (sharedIntent == null || sharedIntent.action !in setOf(Intent.ACTION_SEND, Intent.ACTION_SEND_MULTIPLE)) return
+        val sharedUris = linkedSetOf<Uri>()
+        if (sharedIntent.action == Intent.ACTION_SEND_MULTIPLE) {
+            @Suppress("DEPRECATION")
+            sharedIntent.getParcelableArrayListExtra<Uri>(Intent.EXTRA_STREAM)?.let(sharedUris::addAll)
+        } else {
+            @Suppress("DEPRECATION")
+            (sharedIntent.getParcelableExtra(Intent.EXTRA_STREAM) as? Uri)?.let(sharedUris::add)
+        }
+        sharedIntent.clipData?.let { clip ->
+            for (index in 0 until clip.itemCount) clip.getItemAt(index).uri?.let(sharedUris::add)
+        }
+        if (sharedUris.isEmpty()) return
+        lifecycleScope.launch {
+            try {
+                repository.seedDefaultProfilesIfNeeded()
+                importStatus.value = "Importing ${sharedUris.size} shared document(s) into FileKhoj…"
+                val result = withContext(Dispatchers.IO) {
+                    repository.importDocuments(
+                        sharedUris.toList(),
+                        profileId = activeWorkspaceDestinationId(),
+                        copyToManagedStorage = true
+                    )
+                }
+                passwordQueue.value = (passwordQueue.value + result.passwordRequiredUris).distinctBy { it.toString() }
+                importStatus.value = "Shared import complete: ${result.imported} imported, ${result.alreadyPresent} already present, ${result.failed} failed. Shared files are copied into FileKhoj storage."
+            } catch (error: Exception) {
+                importStatus.value = "Shared import failed: ${error.message ?: error.javaClass.simpleName}"
+            } finally {
+                setIntent(Intent(this@MainActivity, MainActivity::class.java))
+            }
+        }
+    }
+
+    private fun importableMime(mime: String, name: String): Boolean {
+        val normalizedMime = mime.lowercase(Locale.ROOT)
+        val extension = name.substringAfterLast('.', "").lowercase(Locale.ROOT)
+        return normalizedMime == "application/pdf" ||
+            normalizedMime.startsWith("image/") ||
+            normalizedMime == "text/plain" ||
+            normalizedMime.contains("word") ||
+            normalizedMime.contains("spreadsheet") ||
+            normalizedMime.contains("presentation") ||
+            normalizedMime.contains("officedocument") ||
+            extension in setOf("pdf", "jpg", "jpeg", "png", "webp", "heic", "txt", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "rtf")
+    }
+
+    private fun collectImportableUris(treeUri: Uri): List<Uri> {
+        val results = linkedSetOf<Uri>()
+        val visited = mutableSetOf<String>()
+        fun walk(parentId: String, depth: Int) {
+            if (depth > 12 || results.size >= MAX_FOLDER_IMPORT_FILES || !visited.add(parentId)) return
+            val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, parentId)
+            contentResolver.query(
+                childrenUri,
+                arrayOf(
+                    DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+                    DocumentsContract.Document.COLUMN_MIME_TYPE,
+                    DocumentsContract.Document.COLUMN_DISPLAY_NAME
+                ),
+                null, null, null
+            )?.use { cursor ->
+                val idColumn = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_DOCUMENT_ID)
+                val mimeColumn = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_MIME_TYPE)
+                val nameColumn = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
+                while (cursor.moveToNext() && results.size < MAX_FOLDER_IMPORT_FILES) {
+                    if (idColumn < 0 || mimeColumn < 0) continue
+                    val childId = cursor.getString(idColumn) ?: continue
+                    val mime = cursor.getString(mimeColumn).orEmpty()
+                    val name = if (nameColumn >= 0) cursor.getString(nameColumn).orEmpty() else childId
+                    if (mime == DocumentsContract.Document.MIME_TYPE_DIR) {
+                        walk(childId, depth + 1)
+                    } else if (importableMime(mime, name)) {
+                        results += DocumentsContract.buildDocumentUriUsingTree(treeUri, childId)
+                    }
+                }
+            }
+        }
+        walk(DocumentsContract.getTreeDocumentId(treeUri), 0)
+        return results.toList()
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleIncomingShare(intent)
+    }
+
     private fun uniqueExportName(treeUri: Uri, requestedName: String): String {
         val safeName = requestedName.trim().ifBlank { "FileKhoj document" }
         val rootId = DocumentsContract.getTreeDocumentId(treeUri)
@@ -601,10 +750,10 @@ class MainActivity : ComponentActivity() {
 
     private fun openDocument(document: DocumentEntity) {
         try {
-            val documentUri = if (document.isStoredDecrypted) {
-                val managedFile = document.managedPath?.let(::File)
-                if (managedFile == null || !managedFile.isFile) {
-                    importStatus.value = "Unlocked local copy is missing. Remove this entry and import the protected PDF again."
+            val documentUri = if (!document.managedPath.isNullOrBlank()) {
+                val managedFile = File(document.managedPath)
+                if (!managedFile.isFile) {
+                    importStatus.value = "The private FileKhoj copy is missing. Re-import the document."
                     return
                 }
                 FileProvider.getUriForFile(this, "$packageName.fileprovider", managedFile)
@@ -637,6 +786,8 @@ private fun FileKhojApp(
     onPasswordCancel: () -> Unit,
     onSearchSubmitted: (String) -> Unit,
     onImportClick: () -> Unit,
+    onImportFolderClick: () -> Unit,
+    onRequestNotificationPermission: () -> Unit,
     onOpenDocument: (DocumentEntity) -> Unit,
     onPdfSaveRequest: (File, String, (Boolean, String?) -> Unit) -> Unit,
     driveAccount: String?,
@@ -660,6 +811,20 @@ private fun FileKhojApp(
     var draftFavouritesOnly by remember { mutableStateOf(false) }
     var draftPreviewMode by remember { mutableStateOf(PreviewMode.MEDIUM) }
     var documents by remember { mutableStateOf(emptyList<DocumentEntity>()) }
+    var workspaceProfiles by remember { mutableStateOf(emptyList<DocumentProfileEntity>()) }
+    var workspaceAssignments by remember { mutableStateOf(emptyList<DocumentProfileAssignmentEntity>()) }
+    var reminders by remember { mutableStateOf(emptyList<DocumentReminderEntity>()) }
+    var showReminderDialog by remember { mutableStateOf(false) }
+    var reminderTargetId by remember { mutableStateOf<Long?>(null) }
+    var reminderLabelDraft by remember { mutableStateOf("Document expiry") }
+    var reminderDateMillis by remember { mutableStateOf(System.currentTimeMillis() + 30L * 24L * 60L * 60L * 1000L) }
+    var showStorageDashboard by remember { mutableStateOf(false) }
+    val workspacePrefs = remember(context) { context.getSharedPreferences("filekhoj_document_profiles", Context.MODE_PRIVATE) }
+    var activeWorkspaceId by remember { mutableStateOf(workspacePrefs.getLong("active_profile_id", 1L).takeIf { it > 0L }) }
+    var showWorkspaceManager by remember { mutableStateOf(false) }
+    var workspaceNameDraft by remember { mutableStateOf("") }
+    var workspaceEditId by remember { mutableStateOf<Long?>(null) }
+    var showMoveProfileDialog by remember { mutableStateOf(false) }
     var fullTextMatchIds by remember { mutableStateOf<Set<Long>>(emptySet()) }
     var fullTextMatchQuery by remember { mutableStateOf("") }
     var typeFilter by remember { mutableStateOf(TypeFilter.ALL) }
@@ -715,6 +880,23 @@ private fun FileKhojApp(
     }
 
     LaunchedEffect(repository) {
+        repository.seedDefaultProfilesIfNeeded()
+        repository.observeProfiles().collect { incoming ->
+            workspaceProfiles = incoming
+            if (activeWorkspaceId != null && incoming.none { it.id == activeWorkspaceId }) {
+                val fallback = incoming.firstOrNull { it.isDefault }?.id ?: incoming.firstOrNull()?.id
+                activeWorkspaceId = fallback
+                workspacePrefs.edit().putLong("active_profile_id", fallback ?: 0L).apply()
+            }
+        }
+    }
+    LaunchedEffect(repository) {
+        repository.observeProfileAssignments().collect { workspaceAssignments = it }
+    }
+    LaunchedEffect(repository) {
+        repository.observeReminders().collect { reminders = it }
+    }
+    LaunchedEffect(repository) {
         repository.observeDocuments().collect { incoming ->
             documents = incoming
             selectedIds = selectedIds.intersect(incoming.map { it.id }.toSet())
@@ -729,17 +911,28 @@ private fun FileKhojApp(
         }
     }
 
-    val categoryOptions = remember(documents) {
-        listOf("All categories") + documents.mapNotNull { it.category?.trim()?.takeIf(String::isNotBlank) }
+    fun categoryFor(document: DocumentEntity): String? =
+        if (activeWorkspaceId == null) document.category
+        else workspaceAssignments.firstOrNull { it.documentId == document.id && it.profileId == activeWorkspaceId }
+            ?.categoryOverride ?: document.category
+
+    val categoryOptions = remember(documents, workspaceAssignments, activeWorkspaceId) {
+        val scopedDocuments = documents.filter { document ->
+            activeWorkspaceId == null || workspaceAssignments.any {
+                it.documentId == document.id && it.profileId == activeWorkspaceId
+            }
+        }
+        listOf("All categories") + scopedDocuments.mapNotNull { categoryFor(it)?.trim()?.takeIf(String::isNotBlank) }
             .distinct().sorted()
     }
     val filteredDocuments = remember(
         query, documents, typeFilter, dateFilter, signatureFilter, favouritesOnly,
-        selectedCategory, fullTextMatchIds, fullTextMatchQuery
+        selectedCategory, fullTextMatchIds, fullTextMatchQuery, workspaceAssignments, activeWorkspaceId
     ) {
         val now = System.currentTimeMillis()
         documents.filter { document ->
             val mime = document.mimeType.lowercase(Locale.ROOT)
+            val matchesWorkspace = activeWorkspaceId == null || workspaceAssignments.any { it.documentId == document.id && it.profileId == activeWorkspaceId }
             val matchesQuery = query.isBlank() || document.displayName.contains(query.trim(), true) ||
                 (fullTextMatchQuery == query && document.id in fullTextMatchIds)
             val matchesType = when (typeFilter) {
@@ -767,9 +960,9 @@ private fun FileKhojApp(
                     DocumentEntity.SIGNATURE_STATUS_INVALID, DocumentEntity.SIGNATURE_STATUS_INCOMPLETE
                 )
             }
-            matchesQuery && matchesType && matchesDate &&
+            matchesWorkspace && matchesQuery && matchesType && matchesDate &&
                 (!favouritesOnly || document.isFavourite) &&
-                (selectedCategory == "All categories" || document.category == selectedCategory) &&
+                (selectedCategory == "All categories" || categoryFor(document) == selectedCategory) &&
                 matchesSignature
         }
     }
@@ -846,6 +1039,14 @@ private fun FileKhojApp(
                         dateFilter = DateFilter.ANY
                         signatureFilter = SignatureFilter.ANY
                         selectedCategory = "All categories"
+                        scope.launch { drawerState.close() }
+                    })
+                    NavigationDrawerItem(label = { Text("▤  Storage insights & reminders") }, selected = false, onClick = {
+                        showStorageDashboard = true
+                        scope.launch { drawerState.close() }
+                    })
+                    NavigationDrawerItem(label = { Text("▦  Document workspaces") }, selected = false, onClick = {
+                        showWorkspaceManager = true
                         scope.launch { drawerState.close() }
                     })
                     NavigationDrawerItem(label = { Text("★  Favourites") }, selected = false, onClick = {
@@ -944,6 +1145,46 @@ private fun FileKhojApp(
                                     }
                                 }
                             }
+                        }
+                    }
+                    item {
+                        Row(
+                            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(vertical = 2.dp),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            FilterChip(
+                                selected = activeWorkspaceId == null,
+                                onClick = {
+                                    activeWorkspaceId = null
+                                    selectedCategory = "All categories"
+                                    selectedIds = emptySet()
+                                    workspacePrefs.edit().putLong("active_profile_id", 0L).apply()
+                                },
+                                label = { Text("All profiles") }
+                            )
+                            workspaceProfiles.forEach { profile ->
+                                FilterChip(
+                                    selected = activeWorkspaceId == profile.id,
+                                    onClick = {
+                                        activeWorkspaceId = profile.id
+                                        selectedCategory = "All categories"
+                                        selectedIds = emptySet()
+                                        workspacePrefs.edit().putLong("active_profile_id", profile.id)
+                                            .putLong("last_import_profile_id", profile.id).apply()
+                                    },
+                                    label = {
+                                        val glyph = when (profile.icon) {
+                                            "person" -> "👤"; "store" -> "🏪"; "medical" -> "🩺"
+                                            "farm" -> "🌾"; "home" -> "🏠"; "family" -> "👨‍👩‍👧"
+                                            "service" -> "🏛️"; "education" -> "🎓"; "vehicle" -> "🚗"
+                                            else -> "📁"
+                                        }
+                                        Text("$glyph ${profile.name}")
+                                    }
+                                )
+                            }
+                            TextButton(onClick = { showWorkspaceManager = true }) { Text("＋ Manage") }
                         }
                     }
                     item {
@@ -1072,12 +1313,12 @@ private fun FileKhojApp(
                                             try {
                                                 val shareUris = ArrayList<Uri>()
                                                 selectedDocuments.forEach { document ->
-                                                    val uri = if (document.isStoredDecrypted) {
-                                                        val managedFile = document.managedPath?.let(::File)
-                                                        if (managedFile == null || !managedFile.isFile)
-                                                            throw IllegalStateException("Unlocked copy missing: ${document.displayName}")
-                                                        FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", managedFile)
-                                                    } else Uri.parse(document.sourceUri)
+                                                    val uri = if (!document.managedPath.isNullOrBlank()) {
+                                                         val managedFile = File(document.managedPath)
+                                                         if (!managedFile.isFile)
+                                                             throw IllegalStateException("FileKhoj copy missing: ${document.displayName}")
+                                                         FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", managedFile)
+                                                     } else Uri.parse(document.sourceUri)
                                                     shareUris.add(uri)
                                                 }
                                                 if (shareUris.isEmpty()) onStatus("Select at least one file to share.")
@@ -1115,6 +1356,18 @@ private fun FileKhojApp(
                                                 onStatus("Select one file to edit its name or category.")
                                             }
                                         }) { Text("✎ Edit") }
+                                        TextButton(onClick = { showMoveProfileDialog = true }) { Text("⇄ Move / assign") }
+                                        TextButton(onClick = {
+                                            val selectedId = visibleSelectedIds.singleOrNull()
+                                            if (selectedId == null) onStatus("Select exactly one document to set a reminder.")
+                                            else {
+                                                reminderTargetId = selectedId
+                                                val existing = reminders.firstOrNull { it.documentId == selectedId }
+                                                reminderLabelDraft = existing?.label ?: "Document expiry"
+                                                reminderDateMillis = existing?.dueAt ?: (System.currentTimeMillis() + 30L * 24L * 60L * 60L * 1000L)
+                                                showReminderDialog = true
+                                            }
+                                        }) { Text("⏰ Reminder") }
                                     }
                                     Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                                         horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -1166,6 +1419,7 @@ private fun FileKhojApp(
                         }
                     } else {
                         items(filteredDocuments, key = { it.id }) { document ->
+                            val profileSuggestion = DocumentProfileDefaults.suggest(document.displayName, document.mimeType)
                             DocumentRow(
                                 context = context, document = document, mode = previewMode,
                                 selected = document.id in selectedIds,
@@ -1187,7 +1441,27 @@ private fun FileKhojApp(
                                 },
                                 customColor = cardPrefs.getInt("color_${document.id}", 0xFFFFFFFF.toInt()),
                                 customLabels = cardPrefs.getString("labels_${document.id}", "").orEmpty()
-                                    .split("\u001F").filter(String::isNotBlank)
+                                    .split("\u001F").filter(String::isNotBlank),
+                                suggestion = profileSuggestion,
+                                onApplySuggestion = {
+                                    val target = workspaceProfiles.firstOrNull { it.name == profileSuggestion?.profileName }
+                                    if (target == null || profileSuggestion == null) {
+                                        onStatus("Create or restore the suggested workspace before applying this suggestion.")
+                                    } else {
+                                        scope.launch {
+                                            try {
+                                                repository.assignDocumentsToProfile(listOf(document.id), target.id)
+                                                repository.setProfileCategory(document.id, target.id, profileSuggestion.category)
+                                                activeWorkspaceId = target.id
+                                                workspacePrefs.edit().putLong("active_profile_id", target.id)
+                                                    .putLong("last_import_profile_id", target.id).apply()
+                                                onStatus("Assigned to ${target.name} · ${profileSuggestion.category}.")
+                                            } catch (error: Exception) {
+                                                onStatus(error.message ?: "Could not apply profile suggestion.")
+                                            }
+                                        }
+                                    }
+                                }
                             )
                         }
                     }
@@ -1204,6 +1478,9 @@ private fun FileKhojApp(
                         DropdownMenuItem(text = { Text("Import files") },
                             onClick = { showImportMenu = false; onImportClick() },
                             leadingIcon = { Text("＋") })
+                        DropdownMenuItem(text = { Text("Import a folder (WhatsApp / device)") },
+                            onClick = { showImportMenu = false; onImportFolderClick() },
+                            leadingIcon = { Text("▣") })
                     }
                 }
                 }
@@ -1456,8 +1733,14 @@ private fun FileKhojApp(
                     val document = editingDocument ?: return@TextButton
                     scope.launch {
                         try {
-                            repository.updateUserMetadata(document.id, editName, editCategory)
-                            onStatus("Document details updated.")
+                            val workspaceId = activeWorkspaceId
+                            if (workspaceId == null) {
+                                repository.updateUserMetadata(document.id, editName, editCategory)
+                            } else {
+                                repository.updateUserMetadata(document.id, editName, document.category)
+                                repository.setProfileCategory(document.id, workspaceId, editCategory)
+                            }
+                            onStatus("Document details updated for the selected workspace.")
                         } catch (_: IllegalArgumentException) {
                             onStatus("Display name cannot be empty.")
                         }
@@ -1564,6 +1847,268 @@ private fun FileKhojApp(
                     TextButton(onClick = { showFiltersDialog = false }) { Text("Cancel") }
                 }
             }
+        )
+    }
+
+
+
+    if (showReminderDialog) {
+        val formattedReminderDate = DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(reminderDateMillis))
+        AlertDialog(
+            onDismissRequest = { showReminderDialog = false },
+            title = { Text("Document reminder") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Set a local reminder for an expiry date, renewal, follow-up or another important document event.")
+                    OutlinedTextField(
+                        value = reminderLabelDraft,
+                        onValueChange = { reminderLabelDraft = it.take(80) },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("Reminder name") },
+                        singleLine = true
+                    )
+                    Text("Due date: $formattedReminderDate", style = MaterialTheme.typography.bodyMedium)
+                    Button(onClick = {
+                        val calendar = Calendar.getInstance().apply { timeInMillis = reminderDateMillis }
+                        DatePickerDialog(
+                            context,
+                            { _, year, month, day ->
+                                calendar.set(Calendar.YEAR, year)
+                                calendar.set(Calendar.MONTH, month)
+                                calendar.set(Calendar.DAY_OF_MONTH, day)
+                                calendar.set(Calendar.HOUR_OF_DAY, 23)
+                                calendar.set(Calendar.MINUTE, 59)
+                                calendar.set(Calendar.SECOND, 59)
+                                calendar.set(Calendar.MILLISECOND, 0)
+                                reminderDateMillis = calendar.timeInMillis
+                            },
+                            calendar.get(Calendar.YEAR),
+                            calendar.get(Calendar.MONTH),
+                            calendar.get(Calendar.DAY_OF_MONTH)
+                        ).show()
+                    }) { Text("Choose date") }
+                    Text("FileKhoj checks reminders daily and can notify up to seven days before the due date. Android notification permission is required for alerts.",
+                        style = MaterialTheme.typography.bodySmall, color = Color(0xFF64756C))
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val documentId = reminderTargetId
+                    if (documentId == null) {
+                        onStatus("Select a document before saving a reminder.")
+                        showReminderDialog = false
+                    } else {
+                        scope.launch {
+                            try {
+                                repository.setReminder(documentId, reminderLabelDraft, reminderDateMillis)
+                                ExpiryReminderWorker.schedule(context)
+                                onRequestNotificationPermission()
+                                onStatus("Reminder saved locally. Enable notifications to receive alerts.")
+                                showReminderDialog = false
+                            } catch (error: Exception) {
+                                onStatus(error.message ?: "Could not save reminder.")
+                            }
+                        }
+                    }
+                }) { Text("Save reminder") }
+            },
+            dismissButton = {
+                Row {
+                    if (reminderTargetId != null && reminders.any { it.documentId == reminderTargetId }) {
+                        TextButton(onClick = {
+                            val id = reminderTargetId
+                            scope.launch { if (id != null) repository.removeReminder(id) }
+                            showReminderDialog = false
+                            onStatus("Reminder removed.")
+                        }) { Text("Remove") }
+                    }
+                    TextButton(onClick = { showReminderDialog = false }) { Text("Cancel") }
+                }
+            }
+        )
+    }
+
+    if (showStorageDashboard) {
+        val totalBytes = documents.sumOf { it.sizeBytes.coerceAtLeast(0L) }
+        val duplicateHashGroups = documents.filter { !it.contentHash.isNullOrBlank() }
+            .groupBy { it.contentHash }.values.count { it.size > 1 }
+        val upcomingCount = reminders.count {
+            it.enabled && it.dueAt <= System.currentTimeMillis() + 7L * 24L * 60L * 60L * 1000L
+        }
+        AlertDialog(
+            onDismissRequest = { showStorageDashboard = false },
+            title = { Text("Storage insights & reminders") },
+            text = {
+                Column(
+                    Modifier.fillMaxWidth().heightIn(max = 480.dp).verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(7.dp)
+                ) {
+                    Text("Library storage: ${formatSize(totalBytes)} across ${documents.size} document(s).")
+                    Text("Workspace count: ${workspaceProfiles.size}")
+                    Text("Known duplicate-hash groups: $duplicateHashGroups")
+                    Text("Reminders due or approaching within 7 days: $upcomingCount")
+                    androidx.compose.material3.HorizontalDivider()
+                    workspaceProfiles.forEach { profile ->
+                        Text("${profile.name}: ${workspaceAssignments.count { it.profileId == profile.id }} document assignment(s)",
+                            style = MaterialTheme.typography.bodySmall)
+                    }
+                    if (reminders.isNotEmpty()) {
+                        androidx.compose.material3.HorizontalDivider()
+                        Text("Saved reminders", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                        reminders.sortedBy { it.dueAt }.forEach { reminder ->
+                            val document = documents.firstOrNull { it.id == reminder.documentId }
+                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                                Column(Modifier.weight(1f)) {
+                                    Text(reminder.label, style = MaterialTheme.typography.bodyMedium)
+                                    Text("${document?.displayName ?: "Document unavailable"} · ${DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(reminder.dueAt))}",
+                                        style = MaterialTheme.typography.labelSmall, color = Color(0xFF64756C))
+                                }
+                                TextButton(onClick = {
+                                    scope.launch { repository.removeReminder(reminder.documentId) }
+                                    onStatus("Reminder removed.")
+                                }) { Text("Remove") }
+                            }
+                        }
+                    }
+                    Text("Storage totals are based on recorded document sizes. They may not equal the app's physical disk usage when source files remain in external providers.",
+                        style = MaterialTheme.typography.bodySmall, color = Color(0xFF64756C))
+                }
+            },
+            confirmButton = { TextButton(onClick = { showStorageDashboard = false }) { Text("Done") } }
+        )
+    }
+
+    if (showWorkspaceManager) {
+        AlertDialog(
+            onDismissRequest = { showWorkspaceManager = false; workspaceEditId = null; workspaceNameDraft = "" },
+            title = { Text("Document workspaces") },
+            text = {
+                Column(
+                    Modifier.fillMaxWidth().heightIn(max = 480.dp).verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text("Keep Personal, Shop, Medical, Farm and other documents organized in one app. Profiles organize files; they are not encrypted vaults.",
+                        style = MaterialTheme.typography.bodySmall, color = Color(0xFF64756C))
+                    OutlinedTextField(
+                        value = workspaceNameDraft,
+                        onValueChange = { workspaceNameDraft = it.take(DocumentProfileEntity.MAX_NAME_LENGTH) },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text(if (workspaceEditId == null) "New workspace name" else "Rename workspace") },
+                        singleLine = true
+                    )
+                    Button(
+                        modifier = Modifier.fillMaxWidth(),
+                        onClick = {
+                            scope.launch {
+                                try {
+                                    val editingId = workspaceEditId
+                                    if (editingId == null) {
+                                        val createdId = repository.createProfile(workspaceNameDraft)
+                                        activeWorkspaceId = createdId
+                                        workspacePrefs.edit().putLong("active_profile_id", createdId)
+                                            .putLong("last_import_profile_id", createdId).apply()
+                                        onStatus("Workspace created.")
+                                    } else {
+                                        repository.renameProfile(editingId, workspaceNameDraft)
+                                        onStatus("Workspace renamed.")
+                                    }
+                                    workspaceNameDraft = ""
+                                    workspaceEditId = null
+                                } catch (error: Exception) {
+                                    onStatus(error.message ?: "Could not save workspace.")
+                                }
+                            }
+                        }
+                    ) { Text(if (workspaceEditId == null) "＋ Create workspace" else "Save name") }
+                    workspaceProfiles.forEach { profile ->
+                        Row(
+                            Modifier.fillMaxWidth().padding(vertical = 3.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(Modifier.weight(1f)) {
+                                Text(profile.name, style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.SemiBold)
+                                Text("${workspaceAssignments.count { it.profileId == profile.id }} document assignments" +
+                                    if (profile.isDefault) " • default" else "",
+                                    style = MaterialTheme.typography.labelSmall, color = Color(0xFF64756C))
+                            }
+                            TextButton(onClick = {
+                                workspaceEditId = profile.id
+                                workspaceNameDraft = profile.name
+                            }) { Text("Edit") }
+                            if (!profile.isDefault) {
+                                TextButton(onClick = {
+                                    scope.launch {
+                                        try {
+                                            repository.deleteProfile(profile.id)
+                                            if (activeWorkspaceId == profile.id) {
+                                                val fallback = workspaceProfiles.firstOrNull { it.isDefault }?.id ?: 1L
+                                                activeWorkspaceId = fallback
+                                                workspacePrefs.edit().putLong("active_profile_id", fallback)
+                                                    .putLong("last_import_profile_id", fallback).apply()
+                                            }
+                                            if (workspaceEditId == profile.id) {
+                                                workspaceEditId = null
+                                                workspaceNameDraft = ""
+                                            }
+                                            onStatus("Workspace deleted. Its documents were preserved in the default workspace.")
+                                        } catch (error: Exception) {
+                                            onStatus(error.message ?: "Could not delete workspace.")
+                                        }
+                                    }
+                                }) { Text("Delete", color = Color(0xFFB3261E)) }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { showWorkspaceManager = false; workspaceEditId = null; workspaceNameDraft = "" }) { Text("Done") } }
+        )
+    }
+
+    if (showMoveProfileDialog) {
+        AlertDialog(
+            onDismissRequest = { showMoveProfileDialog = false },
+            title = { Text("Move / assign documents") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("${visibleSelectedIds.size} selected document(s). Choose a destination workspace.",
+                        style = MaterialTheme.typography.bodySmall)
+                    Text(
+                        if (activeWorkspaceId == null)
+                            "From All profiles, this adds the documents to the destination without removing existing assignments."
+                        else
+                            "From a specific workspace, this moves the documents there while preserving any other profile assignments.",
+                        style = MaterialTheme.typography.bodySmall, color = Color(0xFF64756C)
+                    )
+                    workspaceProfiles.filter { it.id != activeWorkspaceId || activeWorkspaceId == null }.forEach { profile ->
+                        TextButton(
+                            modifier = Modifier.fillMaxWidth(),
+                            onClick = {
+                                val ids = visibleSelectedIds.toList()
+                                val sourceId = activeWorkspaceId
+                                scope.launch {
+                                    try {
+                                        repository.moveDocumentsToProfile(ids, sourceId, profile.id)
+                                        activeWorkspaceId = profile.id
+                                        workspacePrefs.edit().putLong("active_profile_id", profile.id)
+                                            .putLong("last_import_profile_id", profile.id).apply()
+                                        selectedIds = emptySet()
+                                        showMoveProfileDialog = false
+                                        onStatus(if (sourceId == null)
+                                            "Added ${ids.size} document(s) to ${profile.name}; existing assignments were kept."
+                                        else
+                                            "Moved ${ids.size} document(s) to ${profile.name}; other profile assignments were kept.")
+                                    } catch (error: Exception) {
+                                        onStatus(error.message ?: "Could not move documents.")
+                                    }
+                                }
+                            }
+                        ) { Text("${profile.name}  ·  ${workspaceAssignments.count { it.profileId == profile.id }} assigned") }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { showMoveProfileDialog = false }) { Text("Cancel") } }
         )
     }
 
@@ -1912,7 +2457,9 @@ private fun DocumentRow(
     onFavourite: () -> Unit,
     onCustomize: () -> Unit,
     customColor: Int,
-    customLabels: List<String>
+    customLabels: List<String>,
+    suggestion: ProfileSuggestion?,
+    onApplySuggestion: () -> Unit
 ) {
     val isPdf = document.mimeType.contains("pdf", true)
     val isImage = document.mimeType.startsWith("image/")
@@ -1952,6 +2499,17 @@ private fun DocumentRow(
                     Text("${document.mimeType} • ${formatSize(document.sizeBytes)}",
                         style = MaterialTheme.typography.bodySmall, color = Color(0xFF66766D),
                         maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    if (suggestion != null) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("Suggested: ${suggestion.profileName} · ${suggestion.category}",
+                                modifier = Modifier.weight(1f),
+                                style = MaterialTheme.typography.labelSmall, color = Color(0xFF946B16),
+                                maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            TextButton(onClick = onApplySuggestion, contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)) {
+                                Text("Apply", fontSize = 11.sp)
+                            }
+                        }
+                    }
                 }
                 TextButton(
                     onClick = onFavourite,

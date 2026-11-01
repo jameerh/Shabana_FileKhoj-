@@ -9,6 +9,7 @@ import androidx.room.PrimaryKey
     indices = [
         Index(value = ["sourceUri"], unique = true),
         Index(value = ["displayName"]),
+        Index(value = ["contentHash"]),
         Index(value = ["dateAdded"]),
         Index(value = ["mimeType"]),
         Index(value = ["signatureStatus"])

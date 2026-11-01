@@ -61,6 +61,15 @@ jobs:
       - name: Run unit tests
         run: gradle test
 
+      - name: Upload debug-only APK for fresh-install testing
+        if: success() && steps.signing.outputs.configured != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: Shabana-FileKhoj-debug-testing-only
+          path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+          retention-days: 7
+
       - name: Upload consistently signed APKs
         if: steps.signing.outputs.configured == 'true'
         uses: actions/upload-artifact@v4
