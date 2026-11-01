@@ -11,11 +11,7 @@ import java.util.UUID
 
 sealed interface PdfPreparationResult {
     data class OriginalUnencrypted(val signatureStatus: String, val signatureCount: Int) : PdfPreparationResult
-    data class DecryptedCopy(
-        val file: File,
-        val signatureStatus: String,
-        val signatureCount: Int
-    ) : PdfPreparationResult
+    data class DecryptedCopy(val file: File) : PdfPreparationResult
     data object PasswordRequired : PdfPreparationResult
     data class Failed(val reason: PdfPreparationFailure) : PdfPreparationResult
 }
@@ -89,11 +85,9 @@ class SecurePdfImporter(context: Context) {
                             destination.delete()
                             return PdfPreparationResult.Failed(PdfPreparationFailure.STORAGE_UNAVAILABLE)
                         }
-                        PdfPreparationResult.DecryptedCopy(
-                            destination,
-                            signatureResult.status,
-                            signatureResult.signatureCount
-                        )
+                        // Rewriting a signed/encrypted PDF creates a different byte sequence.
+                        // Do not carry the source document's signature verdict onto this derivative.
+                        PdfPreparationResult.DecryptedCopy(destination)
                     } catch (_: Exception) {
                         destination.delete()
                         PdfPreparationResult.Failed(PdfPreparationFailure.STORAGE_UNAVAILABLE)
