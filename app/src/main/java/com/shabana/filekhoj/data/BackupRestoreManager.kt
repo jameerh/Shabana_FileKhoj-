@@ -171,6 +171,9 @@ class BackupRestoreManager(context: Context) {
                     target.outputStream().buffered().use { output -> input.copyTo(output) }
                 }
                 val uri = FileProvider.getUriForFile(app, "${app.packageName}.fileprovider", target)
+                val restoredMimeType = row.optString("mimeType", "application/octet-stream")
+                val restoredIsPdf = restoredMimeType.contains("pdf", ignoreCase = true) ||
+                    safeName.endsWith(".pdf", ignoreCase = true)
                 val encryptedSource = row.optBoolean("isEncryptedSource", false)
                 val storedDecrypted = if (row.has("isStoredDecrypted")) {
                     row.optBoolean("isStoredDecrypted", false)
@@ -191,7 +194,7 @@ class BackupRestoreManager(context: Context) {
                 pendingFiles += target
                 pendingDocuments += DocumentEntity(
                     displayName = safeName,
-                    mimeType = row.optString("mimeType", "application/octet-stream"),
+                    mimeType = restoredMimeType,
                     sizeBytes = target.length(),
                     sourceUri = uri.toString(),
                     dateAdded = row.optLong("dateAdded", System.currentTimeMillis()),
@@ -200,7 +203,11 @@ class BackupRestoreManager(context: Context) {
                     contentHash = if (row.isNull("contentHash")) null else row.optString("contentHash"),
                     // Archive manifests are unsigned and user-editable. Never trust a restored
                     // signature verdict from metadata; it must be re-evaluated against the restored bytes.
-                    signatureStatus = DocumentEntity.SIGNATURE_STATUS_UNKNOWN,
+                    signatureStatus = if (restoredIsPdf) {
+                        DocumentEntity.SIGNATURE_STATUS_UNKNOWN
+                    } else {
+                        DocumentEntity.SIGNATURE_STATUS_UNSIGNED
+                    },
                     signatureCount = 0,
                     isEncryptedSource = encryptedSource,
                     isStoredDecrypted = storedDecrypted,
