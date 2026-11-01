@@ -135,10 +135,10 @@ class DocumentRepository(context: Context) {
                     managedCopy?.delete()
                 } else {
                     imported++
-                    val indexRequest = OneTimeWorkRequestBuilder<DocumentIndexWorker>()
-                        .setInputData(workDataOf(DocumentIndexWorker.KEY_DOCUMENT_ID to rowId))
-                        .build()
                     val queued = runCatching {
+                        val indexRequest = OneTimeWorkRequestBuilder<DocumentIndexWorker>()
+                            .setInputData(workDataOf(DocumentIndexWorker.KEY_DOCUMENT_ID to rowId))
+                            .build()
                         WorkManager.getInstance(appContext).enqueueUniqueWork(
                             "filekhoj-index-$rowId",
                             ExistingWorkPolicy.KEEP,
