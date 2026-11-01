@@ -3,6 +3,7 @@ package com.shabana.filekhoj.data
 import android.content.ContentResolver
 import android.content.Context
 import android.net.Uri
+import android.provider.DocumentsContract
 import android.provider.OpenableColumns
 import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
@@ -217,7 +218,7 @@ class DocumentRepository(context: Context) {
         var displayName = uri.lastPathSegment?.substringAfterLast('/') ?: "Untitled document"
         var sizeBytes = 0L
         var lastModified: Long? = null
-        resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE, OpenableColumns.LAST_MODIFIED), null, null, null)
+        resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE, DocumentsContract.Document.COLUMN_LAST_MODIFIED), null, null, null)
             ?.use { cursor ->
                 if (cursor.moveToFirst()) {
                     val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
@@ -228,7 +229,7 @@ class DocumentRepository(context: Context) {
                     if (sizeIndex >= 0 && !cursor.isNull(sizeIndex)) {
                         sizeBytes = cursor.getLong(sizeIndex).coerceAtLeast(0L)
                     }
-                    val modifiedIndex = cursor.getColumnIndex(OpenableColumns.LAST_MODIFIED)
+                    val modifiedIndex = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_LAST_MODIFIED)
                     if (modifiedIndex >= 0 && !cursor.isNull(modifiedIndex)) {
                         lastModified = cursor.getLong(modifiedIndex).takeIf { it > 0L }
                     }
