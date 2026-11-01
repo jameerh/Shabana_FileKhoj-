@@ -192,8 +192,10 @@ class BackupRestoreManager(context: Context) {
                     sourceLastModified = if (row.isNull("sourceLastModified")) null else row.optLong("sourceLastModified"),
                     category = if (row.isNull("category")) null else row.optString("category"),
                     contentHash = if (row.isNull("contentHash")) null else row.optString("contentHash"),
-                    signatureStatus = row.optString("signatureStatus", DocumentEntity.SIGNATURE_STATUS_UNKNOWN),
-                    signatureCount = row.optInt("signatureCount", 0),
+                    // Archive manifests are unsigned and user-editable. Never trust a restored
+                    // signature verdict from metadata; it must be re-evaluated against the restored bytes.
+                    signatureStatus = DocumentEntity.SIGNATURE_STATUS_UNKNOWN,
+                    signatureCount = 0,
                     isEncryptedSource = encryptedSource,
                     isStoredDecrypted = storedDecrypted,
                     managedPath = target.absolutePath,
