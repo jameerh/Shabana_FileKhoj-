@@ -90,13 +90,13 @@ jobs:
       - name: Run Android instrumentation tests
         uses: reactivecircus/android-emulator-runner@v2
         with:
-          api-level: 34
+          api-level: 30
           target: google_apis
           arch: x86_64
           profile: pixel_2
           disable-animations: true
           emulator-boot-timeout: 1200
-          emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -no-snapshot
+          emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect
           script: gradle connectedDebugAndroidTest; test_status=$?; mkdir -p app/build/ci-diagnostics; adb logcat -d -v threadtime > app/build/ci-diagnostics/logcat.txt 2>&1; adb shell dumpsys activity processes > app/build/ci-diagnostics/activity-processes.txt 2>&1; exit $test_status
 
       - name: Upload instrumentation diagnostics
