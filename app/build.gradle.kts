@@ -13,6 +13,12 @@ val hasPersistentSigning = !signingStorePath.isNullOrBlank() &&
     !signingStorePassword.isNullOrBlank() &&
     !signingKeyAlias.isNullOrBlank() &&
     !signingKeyPassword.isNullOrBlank()
+val configuredVersionCode = System.getenv("ANDROID_VERSION_CODE")
+    ?.toIntOrNull()
+    ?.takeIf { it > 0 } ?: 1
+val configuredVersionName = System.getenv("ANDROID_VERSION_NAME")
+    ?.takeIf(String::isNotBlank)
+    ?: if (configuredVersionCode == 1) "0.1.0" else "0.1.$configuredVersionCode"
 
 android {
     namespace = "com.shabana.filekhoj"
@@ -22,8 +28,8 @@ android {
         applicationId = "in.shabana.filekhoj"
         minSdk = 24
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = configuredVersionCode
+        versionName = configuredVersionName
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
