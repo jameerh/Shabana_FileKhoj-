@@ -147,7 +147,8 @@ class DocumentRepository(context: Context) {
     suspend fun importDocuments(
         uris: List<Uri>,
         passwordsByUri: Map<String, String> = emptyMap(),
-        profileId: Long? = null
+        profileId: Long? = null,
+        copyToManagedStorage: Boolean = false
     ): ImportDocumentResult = withContext(Dispatchers.IO) {
         val destinationProfileId = profileId ?: dao.ensureDefaultProfile()
         var imported = 0
@@ -199,6 +200,10 @@ class DocumentRepository(context: Context) {
                             return@forEach
                         }
                     }
+                }
+
+                if (copyToManagedStorage && managedCopy == null) {
+                    managedCopy = copyIntoManagedStorage(uri, metadata.displayName)
                 }
 
                 val rowId = dao.insert(
@@ -342,6 +347,41 @@ class DocumentRepository(context: Context) {
             sizeBytes = sizeBytes,
             lastModified = lastModified
         )
+    }
+
+
+    private fun copyIntoManagedStorage(uri: Uri, displayName: String): File {
+        val directory = File(appContext.filesDir, "documents/imported")
+        check(directory.exists() || directory.mkdirs()) { "Could not create private document storage." }
+        val extension = displayName.substringAfterLast('.', "").takeIf { it.matches(Regex("[A-Za-z0-9]{1,10}")) }
+            ?.let { ".$it" }.orEmpty()
+        val destination = File(directory, "import-${java.util.UUID.randomUUID()}$extension")
+        try {
+            val input = resolver.openInputStream(uri) ?: throw IllegalStateException("Could not read shared document.")
+            input.use { source ->
+                destination.outputStream().buffered().use { output ->
+                    val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                    var total = 0L
+                    while (true) {
+                        val count = source.read(buffer)
+                        if (count < 0) break
+                        total += count
+                        require(total <= MAX_MANAGED_IMPORT_BYTES) { "Document exceeds the 512 MB import limit." }
+                        output.write(buffer, 0, count)
+                    }
+                    output.flush()
+                }
+            }
+            require(destination.isFile && destination.length() > 0L) { "The selected document is empty." }
+            return destination
+        } catch (error: Exception) {
+            destination.delete()
+            throw error
+        }
+    }
+
+    companion object {
+        const val MAX_MANAGED_IMPORT_BYTES = 512L * 1024L * 1024L
     }
 
     private data class SourceMetadata(
