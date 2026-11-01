@@ -1599,9 +1599,21 @@ private fun FileKhojApp(
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
                     Text(
-                        "Protect your imported documents and library details.",
+                        "Back up your imported documents and library details.",
                         style = MaterialTheme.typography.bodyMedium
                     )
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.errorContainer
+                    ) {
+                        Text(
+                            "Security warning: ZIP backups are not encrypted. Exported and Google Drive backups contain readable document copies. Store them only in a trusted location.",
+                            modifier = Modifier.padding(12.dp),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onErrorContainer
+                        )
+                    }
                     Surface(
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(12.dp),
