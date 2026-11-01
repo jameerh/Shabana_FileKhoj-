@@ -365,9 +365,12 @@ class MainActivity : ComponentActivity() {
                         else ->
                             "PDF saved successfully ($resultMessage bytes)."
                     }
-                    importStatus.value = message
-                    Toast.makeText(this@MainActivity, message, Toast.LENGTH_LONG).show()
-                    completion?.invoke(true, message)
+                    val finalMessage = message + if (importResult.indexingQueueFailures > 0) {
+                        " Indexing could not be queued; reopen the library and retry indexing."
+                    } else ""
+                    importStatus.value = finalMessage
+                    Toast.makeText(this@MainActivity, finalMessage, Toast.LENGTH_LONG).show()
+                    completion?.invoke(true, finalMessage)
                 } catch (error: Exception) {
                     val detail = error.message ?: error.javaClass.simpleName
                     val message = "PDF save failed: $detail"
