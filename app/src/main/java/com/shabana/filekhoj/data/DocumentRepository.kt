@@ -13,6 +13,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.security.MessageDigest
 
 data class ImportDocumentResult(
     val imported: Int,
@@ -192,6 +193,21 @@ class DocumentRepository(context: Context) {
                 }
 
                 val metadata = queryMetadata(uri)
+                val contentHash = calculateContentHash(uri, metadata.sizeBytes)
+                if (contentHash != null) {
+                    val duplicate = dao.findByContentHash(contentHash)
+                    if (duplicate != null) {
+                        if (copyToManagedStorage && duplicate.managedPath.isNullOrBlank()) {
+                            val durableCopy = copyIntoManagedStorage(uri, metadata.displayName)
+                            dao.update(duplicate.copy(managedPath = durableCopy.absolutePath))
+                        }
+                        dao.insertProfileAssignment(
+                            DocumentProfileAssignmentEntity(duplicate.id, destinationProfileId)
+                        )
+                        alreadyPresent++
+                        return@forEach
+                    }
+                }
                 var encryptedSource = false
                 var storedDecrypted = false
                 var signatureStatus = DocumentEntity.SIGNATURE_STATUS_UNSIGNED
@@ -239,6 +255,7 @@ class DocumentRepository(context: Context) {
                         isEncryptedSource = encryptedSource,
                         isStoredDecrypted = storedDecrypted,
                         managedPath = managedCopy?.absolutePath,
+                        contentHash = contentHash,
                         signatureStatus = signatureStatus,
                         signatureCount = signatureCount
                     )
@@ -371,6 +388,29 @@ class DocumentRepository(context: Context) {
         )
     }
 
+
+    private fun calculateContentHash(uri: Uri, knownSize: Long): String? {
+        if (knownSize > MAX_MANAGED_IMPORT_BYTES) return null
+        return try {
+            val digest = MessageDigest.getInstance("SHA-256")
+            val input = resolver.openInputStream(uri) ?: return null
+            var total = 0L
+            input.use { stream ->
+                val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                while (true) {
+                    val count = stream.read(buffer)
+                    if (count < 0) break
+                    total += count
+                    if (total > MAX_MANAGED_IMPORT_BYTES) return null
+                    digest.update(buffer, 0, count)
+                }
+            }
+            digest.digest().joinToString("") { "%02x".format(it) }
+        } catch (_: Exception) {
+            // Hashing is a best-effort optimization; unsupported providers and very large files still import.
+            null
+        }
+    }
 
     private fun copyIntoManagedStorage(uri: Uri, displayName: String): File {
         val directory = File(appContext.filesDir, "documents/imported")
