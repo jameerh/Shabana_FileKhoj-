@@ -34,6 +34,8 @@ import androidx.compose.material3.NavigationDrawerItem
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.Image
@@ -195,7 +197,10 @@ class MainActivity : ComponentActivity() {
                         } ?: throw IllegalStateException("Could not read backup.")
                     }
                     val result = withContext(Dispatchers.IO) { BackupRestoreManager(applicationContext).restoreBackup(temp) }
-                    importStatus.value = "Restore complete: ${result.restored} restored, ${result.skipped} skipped."
+                    importStatus.value = "Restore complete: ${result.restored} restored, ${result.skipped} skipped." +
+                        if (result.indexingQueueFailures > 0) {
+                            " Indexing could not be queued for ${result.indexingQueueFailures} document(s); reopen the library and retry indexing."
+                        } else ""
                 } catch (error: Exception) { importStatus.value = "Restore failed: ${error.message}. Existing library kept." }
                 finally { temp.delete() }
             }
@@ -278,6 +283,9 @@ class MainActivity : ComponentActivity() {
                     if (result.passwordRequiredUris.isNotEmpty()) {
                         append(" • password required for ${result.passwordRequiredUris.size} PDF(s)")
                     }
+                    if (result.indexingQueueFailures > 0) {
+                        append(" • indexing could not be queued for ${result.indexingQueueFailures} document(s)")
+                    }
                 }
             }
         }
@@ -357,9 +365,12 @@ class MainActivity : ComponentActivity() {
                         else ->
                             "PDF saved successfully ($resultMessage bytes)."
                     }
-                    importStatus.value = message
-                    Toast.makeText(this@MainActivity, message, Toast.LENGTH_LONG).show()
-                    completion?.invoke(true, message)
+                    val finalMessage = message + if (importResult.indexingQueueFailures > 0) {
+                        " Indexing could not be queued; reopen the library and retry indexing."
+                    } else ""
+                    importStatus.value = finalMessage
+                    Toast.makeText(this@MainActivity, finalMessage, Toast.LENGTH_LONG).show()
+                    completion?.invoke(true, finalMessage)
                 } catch (error: Exception) {
                     val detail = error.message ?: error.javaClass.simpleName
                     val message = "PDF save failed: $detail"
@@ -498,7 +509,10 @@ class MainActivity : ComponentActivity() {
                 val result = withContext(Dispatchers.IO) {
                     BackupRestoreManager(applicationContext).restoreBackup(temp)
                 }
-                importStatus.value = "Google Drive restore complete: ${result.restored} restored, ${result.skipped} skipped."
+                importStatus.value = "Google Drive restore complete: ${result.restored} restored, ${result.skipped} skipped." +
+                    if (result.indexingQueueFailures > 0) {
+                        " Indexing could not be queued for ${result.indexingQueueFailures} document(s); reopen the library and retry indexing."
+                    } else ""
             } catch (error: Exception) {
                 Log.e("ShabanaFileKhoj", "Google Drive restore failed", error)
                 importStatus.value = "Google Drive restore failed: ${error.message ?: error.javaClass.simpleName}. Existing library entries were kept."
@@ -1892,7 +1906,8 @@ private fun DocumentRow(
     ) {
         Column(Modifier.fillMaxWidth().padding(9.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Checkbox(checked = selected, onCheckedChange = onSelectedChange)
+                Checkbox(checked = selected, onCheckedChange = onSelectedChange,
+                    modifier = Modifier.semantics { contentDescription = "Select ${document.displayName}" })
                 Box(
                     Modifier.size(42.dp).clip(RoundedCornerShape(12.dp))
                         .background(if (isPdf) Color(0xFFFFE8E5) else Color(0xFFE6F1E9)),
@@ -1909,7 +1924,12 @@ private fun DocumentRow(
                         style = MaterialTheme.typography.bodySmall, color = Color(0xFF66766D),
                         maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
-                TextButton(onClick = onFavourite) {
+                TextButton(
+                    onClick = onFavourite,
+                    modifier = Modifier.semantics {
+                        contentDescription = if (document.isFavourite) "Remove ${document.displayName} from favourites" else "Add ${document.displayName} to favourites"
+                    }
+                ) {
                     Text(if (document.isFavourite) "★" else "☆",
                         color = if (document.isFavourite) Color(0xFFB88A24) else Color(0xFF6E7D74),
                         fontSize = 20.sp)
@@ -1942,7 +1962,9 @@ private fun DocumentRow(
                     style = MaterialTheme.typography.bodySmall, color = Color(0xFF66766D))
                 Text(if (document.isFavourite) "★ Favourite • ${document.indexStatus}" else "Index: ${document.indexStatus}",
                     style = MaterialTheme.typography.labelSmall, color = Color(0xFF496354))
-                val signatureLabel = when (document.signatureStatus) {
+                val signatureLabel = (if (document.isStoredDecrypted) {
+                    "Original PDF signature (unlocked copy is not independently signed): "
+                } else "") + when (document.signatureStatus) {
                     DocumentEntity.SIGNATURE_STATUS_VERIFIED ->
                         "✓ Verified by Shabana Multi Service Verifier Tool • certificate chain trusted; revocation not checked"
                     DocumentEntity.SIGNATURE_STATUS_UNTRUSTED ->
@@ -1977,7 +1999,7 @@ private fun DocumentRow(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = when (document.signatureStatus) {
+                        text = (if (document.isStoredDecrypted) "Original: " else "") + when (document.signatureStatus) {
                             DocumentEntity.SIGNATURE_STATUS_VERIFIED -> "✓ Signature valid"
                             DocumentEntity.SIGNATURE_STATUS_EXPIRED -> "✓ Signature cryptographically valid"
                             DocumentEntity.SIGNATURE_STATUS_UNSIGNED -> "○ No digital signature"
@@ -2022,18 +2044,26 @@ private fun DocumentRow(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.End
             ) {
-                TextButton(onClick = onEdit, contentPadding = PaddingValues(horizontal = 5.dp, vertical = 0.dp)) {
+                TextButton(onClick = onEdit,
+                    modifier = Modifier.semantics { contentDescription = "Edit details for ${document.displayName}" },
+                    contentPadding = PaddingValues(horizontal = 5.dp, vertical = 0.dp)) {
                     Text("✎", fontSize = 18.sp, color = Color(0xFF07583D))
                 }
                 if (isPdf) {
-                    TextButton(onClick = onEditPdf, contentPadding = PaddingValues(horizontal = 5.dp, vertical = 0.dp)) {
+                    TextButton(onClick = onEditPdf,
+                        modifier = Modifier.semantics { contentDescription = "Edit PDF pages for ${document.displayName}" },
+                        contentPadding = PaddingValues(horizontal = 5.dp, vertical = 0.dp)) {
                         Text("▤✎", fontSize = 16.sp, color = Color(0xFF07583D))
                     }
                 }
-                TextButton(onClick = onCustomize, contentPadding = PaddingValues(horizontal = 5.dp, vertical = 0.dp)) {
+                TextButton(onClick = onCustomize,
+                    modifier = Modifier.semantics { contentDescription = "Customize card for ${document.displayName}" },
+                    contentPadding = PaddingValues(horizontal = 5.dp, vertical = 0.dp)) {
                     Text("🏷", fontSize = 16.sp)
                 }
-                TextButton(onClick = onDelete, contentPadding = PaddingValues(horizontal = 5.dp, vertical = 0.dp)) {
+                TextButton(onClick = onDelete,
+                    modifier = Modifier.semantics { contentDescription = "Remove ${document.displayName} from FileKhoj library" },
+                    contentPadding = PaddingValues(horizontal = 5.dp, vertical = 0.dp)) {
                     Text("🗑", fontSize = 16.sp, color = Color(0xFFB3261E))
                 }
                 Button(onClick = onClick, shape = RoundedCornerShape(50),

@@ -40,6 +40,11 @@ interface DocumentDao {
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insert(document: DocumentEntity): Long
 
+    /** Inserts a restore batch in one Room transaction so partial restores cannot commit. */
+    @Transaction
+    suspend fun insertDocumentsAtomically(documents: List<DocumentEntity>): List<Long> =
+        documents.map { insert(it) }
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertExtractedText(text: DocumentTextEntity)
 

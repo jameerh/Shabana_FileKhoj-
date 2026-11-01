@@ -24,10 +24,9 @@ class ScheduledBackupWorker(
             if (!temporary.isFile || temporary.length() <= 0L) {
                 throw IllegalStateException("Backup archive was not created.")
             }
-            if (destination.exists() && !destination.delete()) {
-                throw IllegalStateException("Could not rotate the previous backup.")
+            check(BackupFilePromotion.promote(temporary, destination)) {
+                "Could not safely publish the backup archive; the previous backup was preserved."
             }
-            check(temporary.renameTo(destination)) { "Could not finalize the backup archive." }
             applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
                 .putLong(KEY_LAST_SUCCESS, System.currentTimeMillis())
                 .putString(KEY_LAST_ERROR, "")

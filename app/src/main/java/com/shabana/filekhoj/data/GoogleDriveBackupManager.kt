@@ -119,8 +119,9 @@ class GoogleDriveBackupManager(private val context: Context) {
                     temp.outputStream().buffered().use { output -> input.copyTo(output) }
                 } ?: throw IOException("Google Drive returned an empty response.")
                 if (!temp.isFile || temp.length() <= 0L) throw IOException("Downloaded backup is empty.")
-                if (destination.exists() && !destination.delete()) throw IOException("Could not replace temporary backup.")
-                check(temp.renameTo(destination)) { "Could not finalize downloaded backup." }
+                check(BackupFilePromotion.promote(temp, destination)) {
+                    "Could not safely publish downloaded backup; the previous local backup was preserved."
+                }
             } catch (error: Exception) {
                 temp.delete()
                 throw error
