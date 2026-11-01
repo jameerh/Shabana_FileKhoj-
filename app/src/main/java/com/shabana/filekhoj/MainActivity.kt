@@ -301,7 +301,7 @@ class MainActivity : ComponentActivity() {
                         repository.seedDefaultProfilesIfNeeded()
                         val destinationProfile = activeWorkspaceDestinationId()
                         val result = withContext(Dispatchers.IO) {
-                            repository.importDocuments(selected, profileId = destinationProfile)
+                            repository.importDocuments(selected, profileId = destinationProfile, copyToManagedStorage = true)
                         }
                         importStatus.value = "Folder import complete: ${result.imported} imported, ${result.alreadyPresent} already present, ${result.failed} failed. Scanned up to $MAX_FOLDER_IMPORT_FILES files."
                     }
