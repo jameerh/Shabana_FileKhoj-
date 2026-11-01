@@ -1811,6 +1811,133 @@ private fun FileKhojApp(
     }
 
 
+
+    if (showReminderDialog) {
+        val formattedReminderDate = DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(reminderDateMillis))
+        AlertDialog(
+            onDismissRequest = { showReminderDialog = false },
+            title = { Text("Document reminder") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Set a local reminder for an expiry date, renewal, follow-up or another important document event.")
+                    OutlinedTextField(
+                        value = reminderLabelDraft,
+                        onValueChange = { reminderLabelDraft = it.take(80) },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("Reminder name") },
+                        singleLine = true
+                    )
+                    Text("Due date: $formattedReminderDate", style = MaterialTheme.typography.bodyMedium)
+                    Button(onClick = {
+                        val calendar = Calendar.getInstance().apply { timeInMillis = reminderDateMillis }
+                        DatePickerDialog(
+                            context,
+                            { _, year, month, day ->
+                                calendar.set(Calendar.YEAR, year)
+                                calendar.set(Calendar.MONTH, month)
+                                calendar.set(Calendar.DAY_OF_MONTH, day)
+                                calendar.set(Calendar.HOUR_OF_DAY, 23)
+                                calendar.set(Calendar.MINUTE, 59)
+                                calendar.set(Calendar.SECOND, 59)
+                                calendar.set(Calendar.MILLISECOND, 0)
+                                reminderDateMillis = calendar.timeInMillis
+                            },
+                            calendar.get(Calendar.YEAR),
+                            calendar.get(Calendar.MONTH),
+                            calendar.get(Calendar.DAY_OF_MONTH)
+                        ).show()
+                    }) { Text("Choose date") }
+                    Text("FileKhoj checks reminders daily and can notify up to seven days before the due date. Android notification permission is required for alerts.",
+                        style = MaterialTheme.typography.bodySmall, color = Color(0xFF64756C))
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val documentId = reminderTargetId
+                    if (documentId == null) {
+                        onStatus("Select a document before saving a reminder.")
+                        showReminderDialog = false
+                    } else {
+                        scope.launch {
+                            try {
+                                repository.setReminder(documentId, reminderLabelDraft, reminderDateMillis)
+                                ExpiryReminderWorker.schedule(context)
+                                onRequestNotificationPermission()
+                                onStatus("Reminder saved locally. Enable notifications to receive alerts.")
+                                showReminderDialog = false
+                            } catch (error: Exception) {
+                                onStatus(error.message ?: "Could not save reminder.")
+                            }
+                        }
+                    }
+                }) { Text("Save reminder") }
+            },
+            dismissButton = {
+                Row {
+                    if (reminderTargetId != null && reminders.any { it.documentId == reminderTargetId }) {
+                        TextButton(onClick = {
+                            val id = reminderTargetId
+                            scope.launch { if (id != null) repository.removeReminder(id) }
+                            showReminderDialog = false
+                            onStatus("Reminder removed.")
+                        }) { Text("Remove") }
+                    }
+                    TextButton(onClick = { showReminderDialog = false }) { Text("Cancel") }
+                }
+            }
+        )
+    }
+
+    if (showStorageDashboard) {
+        val totalBytes = documents.sumOf { it.sizeBytes.coerceAtLeast(0L) }
+        val duplicateHashGroups = documents.filter { !it.contentHash.isNullOrBlank() }
+            .groupBy { it.contentHash }.values.count { it.size > 1 }
+        val upcomingCount = reminders.count {
+            it.enabled && it.dueAt <= System.currentTimeMillis() + 7L * 24L * 60L * 60L * 1000L
+        }
+        AlertDialog(
+            onDismissRequest = { showStorageDashboard = false },
+            title = { Text("Storage insights & reminders") },
+            text = {
+                Column(
+                    Modifier.fillMaxWidth().heightIn(max = 480.dp).verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(7.dp)
+                ) {
+                    Text("Library storage: ${formatSize(totalBytes)} across ${documents.size} document(s).")
+                    Text("Workspace count: ${workspaceProfiles.size}")
+                    Text("Known duplicate-hash groups: $duplicateHashGroups")
+                    Text("Reminders due or approaching within 7 days: $upcomingCount")
+                    androidx.compose.material3.HorizontalDivider()
+                    workspaceProfiles.forEach { profile ->
+                        Text("${profile.name}: ${workspaceAssignments.count { it.profileId == profile.id }} document assignment(s)",
+                            style = MaterialTheme.typography.bodySmall)
+                    }
+                    if (reminders.isNotEmpty()) {
+                        androidx.compose.material3.HorizontalDivider()
+                        Text("Saved reminders", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                        reminders.sortedBy { it.dueAt }.forEach { reminder ->
+                            val document = documents.firstOrNull { it.id == reminder.documentId }
+                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                                Column(Modifier.weight(1f)) {
+                                    Text(reminder.label, style = MaterialTheme.typography.bodyMedium)
+                                    Text("${document?.displayName ?: "Document unavailable"} · ${DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(reminder.dueAt))}",
+                                        style = MaterialTheme.typography.labelSmall, color = Color(0xFF64756C))
+                                }
+                                TextButton(onClick = {
+                                    scope.launch { repository.removeReminder(reminder.documentId) }
+                                    onStatus("Reminder removed.")
+                                }) { Text("Remove") }
+                            }
+                        }
+                    }
+                    Text("Storage totals are based on recorded document sizes. They may not equal the app's physical disk usage when source files remain in external providers.",
+                        style = MaterialTheme.typography.bodySmall, color = Color(0xFF64756C))
+                }
+            },
+            confirmButton = { TextButton(onClick = { showStorageDashboard = false }) { Text("Done") } }
+        )
+    }
+
     if (showWorkspaceManager) {
         AlertDialog(
             onDismissRequest = { showWorkspaceManager = false; workspaceEditId = null; workspaceNameDraft = "" },
