@@ -159,7 +159,8 @@ interface DocumentDao {
     suspend fun insertDocumentsWithProfileAssignmentsAtomically(
         documents: List<DocumentEntity>,
         assignmentsByDocument: List<List<Pair<Long, String?>>>,
-        defaultProfileId: Long
+        defaultProfileId: Long,
+        remindersByDocument: List<Pair<String, Long>?> = emptyList()
     ): List<Long> {
         return documents.mapIndexed { index, document ->
             val id = insert(document)
@@ -172,6 +173,14 @@ interface DocumentDao {
                         DocumentProfileAssignmentEntity(id, profileId, category)
                     }
                 )
+                remindersByDocument.getOrNull(index)?.let { (label, dueAt) ->
+                    upsertReminder(
+                        DocumentReminderEntity(
+                            documentId = id, label = label, dueAt = dueAt,
+                            enabled = true, notifiedAt = null, createdAt = System.currentTimeMillis()
+                        )
+                    )
+                }
             }
             id
         }
