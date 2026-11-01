@@ -4,8 +4,7 @@ import android.net.Uri
 import androidx.activity.ComponentActivity
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
-import androidx.compose.ui.test.assertExists
-import androidx.compose.ui.test.onAllNodesWithContentDescription
+import androidx.compose.ui.test.assertIsDisplayed
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.shabana.filekhoj.data.DocumentEntity
 import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
@@ -51,7 +50,7 @@ class PdfEditorAccessibilityInstrumentedTest {
             }
             composeRule.waitUntil(timeoutMillis = 20_000) {
                 try {
-                    composeRule.onNodeWithContentDescription("Select source page 1").assertExists()
+                    composeRule.onNodeWithContentDescription("Select source page 1").assertIsDisplayed()
                     true
                 } catch (_: AssertionError) {
                     false
