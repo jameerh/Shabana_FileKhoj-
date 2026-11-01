@@ -65,6 +65,59 @@ Implemented in the Phase 4 code changes:
 - [ ] Confirm instrumentation tests pass on the merged Phase 4 commit. The earlier instrumentation attempt failed during emulator boot; a retry is in progress and must finish before this gate is certified.
 - [ ] Verify large/scanned PDFs, low-storage archive restore, and provider-specific file handling on physical Android devices.
 
+
+## Multi-Profile Document Workspaces — Stages 1–6
+
+Implemented on branch `feature/multi-profile-workspaces` (pending CI and review at the time this checklist was updated).
+
+### Stage 1 — Profile foundation
+- [x] Add dedicated Room workspace and document-assignment entities, separate from local user-registration profiles.
+- [x] Add schema migration that preserves existing document IDs and assigns existing documents to Personal.
+- [x] Seed Personal, Shop / Business, Medical, Farm / Agriculture, Property, Family, CSC / Digital Services, Education and Vehicle workspaces.
+- [x] Add custom workspace create, rename and delete operations; deleting a workspace preserves documents by assigning them to the default workspace.
+- [x] Keep document payloads single-copy while allowing many-to-many workspace assignments.
+
+### Stage 2 — Workspace library
+- [x] Add workspace switcher, All profiles view and profile-scoped library filtering.
+- [x] Add bulk move/assign without deleting the original file or losing other workspace assignments.
+- [x] Support profile-specific category overrides while retaining global document metadata.
+- [x] Add a profile manager and assignment counts.
+- [ ] Validate migration from real installed v4 database on physical devices and confirm no workspace/profile UI regressions.
+
+### Stage 3 — Low-friction import
+- [x] Register FileKhoj as an Android share target for single and multiple files.
+- [x] Route shared files into the last-used workspace and copy them into app-managed storage so temporary URI grants do not break future access.
+- [x] Add user-selected SAF folder import with recursive traversal, MIME/extension filtering, depth limit and 5,000-file cap.
+- [x] Preserve the source file; no silent delete or move from WhatsApp.
+- [ ] Validate WhatsApp variants and Android 11+ SAF access on physical devices; inaccessible/private folders must remain gracefully unsupported.
+
+### Stage 4 — Smart organization
+- [x] Add local filename/MIME-based profile and category suggestions for common Shop, Farm, Medical, Property, Education, Vehicle and CSC documents.
+- [x] Require user action to apply suggestions; do not silently classify sensitive files.
+- [x] Add bounded SHA-256 content deduplication for imports up to 512 MB and preserve multiple workspace assignments for duplicate content.
+- [x] Add unit tests for built-in workspace definitions and classification rules, plus instrumentation coverage for duplicate content.
+- [ ] Verify hash performance and large-file behavior on lower-end devices.
+
+### Stage 5 — Backup and recovery
+- [x] Upgrade FileKhoj ZIP manifest to version 3.
+- [x] Preserve workspace definitions, per-document workspace assignments, profile-specific categories and reminder metadata.
+- [x] Restore document rows, workspace assignments and reminders transactionally after archive validation.
+- [x] Keep version 1 and version 2 restore compatibility; retain payload size and SHA-256 checks.
+- [ ] Encrypted backup and archive authentication remain separate security work. Current ZIP backups are not encrypted, and SHA-256 metadata is not a signature.
+
+### Stage 6 — Productivity
+- [x] Add local due-date reminders and a daily WorkManager scan; notify within seven days of the due date when Android notification permission is granted.
+- [x] Add a storage/workspace insights dashboard with document counts, recorded size totals, workspace assignment counts, known duplicate-hash groups and saved reminders.
+- [x] Add reminder persistence and backup round-trip coverage.
+- [ ] Confirm reminder delivery behavior under Doze, app standby, denied notification permission and OEM battery restrictions.
+
+### Release gates for Multi-Profile Workspaces
+- [ ] Latest branch CI build and unit tests pass.
+- [ ] Latest branch Android instrumentation tests pass.
+- [ ] Real-device tests confirm WhatsApp share, folder import, URI permission loss recovery, profile switching, multi-profile assignment, backup/restore and reminders.
+- [ ] Verify existing documents remain accessible after the v4-to-v7 Room migration.
+- [ ] Verify a debug-only test APK is clearly distinguished from a persistently signed update-compatible APK.
+
 ## Release gate (post-Phase 4)
 
 - [ ] All required unit and instrumentation CI jobs pass on the latest release candidate.
