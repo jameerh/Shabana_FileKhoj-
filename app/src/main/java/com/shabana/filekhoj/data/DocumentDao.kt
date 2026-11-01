@@ -47,7 +47,7 @@ interface DocumentDao {
     @Query("SELECT * FROM document_reminders WHERE documentId = :documentId LIMIT 1")
     suspend fun getReminder(documentId: Long): DocumentReminderEntity?
 
-    @Query("SELECT * FROM document_reminders WHERE enabled = 1 AND dueAt <= :horizon AND (notifiedAt IS NULL OR notifiedAt < dueAt)")
+    @Query("SELECT * FROM document_reminders WHERE enabled = 1 AND dueAt <= :horizon AND notifiedAt IS NULL")
     suspend fun getDueReminders(horizon: Long): List<DocumentReminderEntity>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
