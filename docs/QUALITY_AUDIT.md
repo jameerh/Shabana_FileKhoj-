@@ -60,7 +60,9 @@ Implemented in the Phase 4 code changes:
 - [x] Avoid copying a source PDF's signature verdict to a rewritten/decrypted derivative.
 - [x] Add unit and instrumentation tests for partial indexing, archive bounds, missing integrity metadata, payload tampering, signature metadata reset, and encrypted-PDF derivative handling.
 - [x] Build and unit-test job passed on the original Phase 4 PR head; a clean main-based PR was prepared to avoid reintroducing old Phase 2 history.
-- [ ] Confirm instrumentation tests pass on the clean main-based Phase 4 PR head. The prior instrumentation attempt failed during emulator boot before the test suite could reliably run.
+- [x] Phase 4 implementation merged to `main` as `628c1a13cea5cc097d044f5193ea13e828b92885`.
+- [x] Build and unit-test job passed on the original Phase 4 PR head.
+- [ ] Confirm instrumentation tests pass on the merged Phase 4 commit. The earlier instrumentation attempt failed during emulator boot; a retry is in progress and must finish before this gate is certified.
 - [ ] Verify large/scanned PDFs, low-storage archive restore, and provider-specific file handling on physical Android devices.
 
 ## Release gate (post-Phase 4)
