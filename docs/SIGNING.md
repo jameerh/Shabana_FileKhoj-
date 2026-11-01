@@ -27,6 +27,8 @@ Never paste the keystore or passwords into issues, pull requests, source files, 
 
 Run **Actions → Android CI → Run workflow** on `main`. When all four secrets are configured, the workflow signs both the debug and release APKs with this same keystore and publishes the artifact `Shabana-FileKhoj-update-apks`. Keep using APKs from this workflow; do not install a debug APK from an unrelated/local build over them.
 
+The workflow supplies its monotonically increasing run number as the APK `versionCode`, so a later artifact from the same workflow is not rejected as a version downgrade. Local development builds use the default version code and should not be mixed with the distributed signing identity.
+
 If the secrets are missing, CI still builds and tests the project but intentionally does not publish an APK signed with a disposable runner key.
 
 ## Important: already-installed app
