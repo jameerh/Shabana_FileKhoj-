@@ -2,7 +2,6 @@ package com.shabana.filekhoj.pdf
 
 import android.net.Uri
 import androidx.activity.ComponentActivity
-import androidx.compose.ui.test.assertExists
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onAllNodesWithContentDescription
@@ -12,6 +11,7 @@ import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
 import com.tom_roush.pdfbox.pdmodel.PDDocument
 import com.tom_roush.pdfbox.pdmodel.PDPage
 import java.io.File
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -53,9 +53,18 @@ class PdfEditorAccessibilityInstrumentedTest {
                 composeRule.onAllNodesWithContentDescription("Select source page 1")
                     .fetchSemanticsNodes().isNotEmpty()
             }
-            composeRule.onNodeWithContentDescription("Select source page 1").assertExists()
-            composeRule.onNodeWithContentDescription("Move page 1 up").assertExists()
-            composeRule.onNodeWithContentDescription("Move page 1 down").assertExists()
+            assertTrue(
+                composeRule.onNodeWithContentDescription("Select source page 1")
+                    .fetchSemanticsNodes().isNotEmpty()
+            )
+            assertTrue(
+                composeRule.onNodeWithContentDescription("Move page 1 up")
+                    .fetchSemanticsNodes().isNotEmpty()
+            )
+            assertTrue(
+                composeRule.onNodeWithContentDescription("Move page 1 down")
+                    .fetchSemanticsNodes().isNotEmpty()
+            )
         } finally {
             source.delete()
         }
