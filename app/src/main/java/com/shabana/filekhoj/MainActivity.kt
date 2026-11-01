@@ -1989,8 +1989,22 @@ private fun DocumentRow(
             if (mode == PreviewMode.DETAILS || mode == PreviewMode.MEDIUM || mode == PreviewMode.LARGE) {
                 Text("Added ${DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(document.dateAdded))}",
                     style = MaterialTheme.typography.bodySmall, color = Color(0xFF66766D))
-                Text(if (document.isFavourite) "★ Favourite • ${document.indexStatus}" else "Index: ${document.indexStatus}",
-                    style = MaterialTheme.typography.labelSmall, color = Color(0xFF496354))
+                val indexLabel = when (document.indexStatus) {
+                    DocumentEntity.INDEX_STATUS_INDEXED -> "Text indexed"
+                    DocumentEntity.INDEX_STATUS_PARTIALLY_INDEXED -> "Partially indexed • search may miss pages"
+                    DocumentEntity.INDEX_STATUS_OCR_REQUIRED -> "OCR required • searchable text unavailable"
+                    DocumentEntity.INDEX_STATUS_QUEUED -> "Indexing queued"
+                    DocumentEntity.INDEX_STATUS_INDEXING -> "Indexing in progress"
+                    DocumentEntity.INDEX_STATUS_FAILED -> "Indexing failed"
+                    DocumentEntity.INDEX_STATUS_SOURCE_UNAVAILABLE -> "Source unavailable"
+                    DocumentEntity.INDEX_STATUS_UNSUPPORTED -> "Text search unsupported for this file type"
+                    else -> "Not indexed"
+                }
+                Text(
+                    if (document.isFavourite) "★ Favourite • $indexLabel" else "Index: $indexLabel",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Color(0xFF496354)
+                )
                 val signatureLabel = (if (document.isStoredDecrypted) {
                     "Original PDF signature (unlocked copy is not independently signed): "
                 } else "") + when (document.signatureStatus) {
