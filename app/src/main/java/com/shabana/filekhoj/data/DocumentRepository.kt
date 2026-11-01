@@ -12,7 +12,6 @@ import androidx.work.workDataOf
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.security.MessageDigest
@@ -57,9 +56,10 @@ class DocumentRepository(context: Context) {
     suspend fun ensureDefaultProfile(): Long = dao.ensureDefaultProfile()
 
     suspend fun seedDefaultProfilesIfNeeded() = withContext(Dispatchers.IO) {
-        profileSeedMutex.withLock {
+        profileSeedMutex.lock()
+        try {
             val prefs = appContext.getSharedPreferences("filekhoj_document_profiles", Context.MODE_PRIVATE)
-            if (prefs.getBoolean("builtins_seeded_v1", false)) return@withLock
+            if (prefs.getBoolean("builtins_seeded_v1", false)) return@withContext
             val existing = dao.getProfiles()
             if (existing.isEmpty()) dao.ensureDefaultProfile()
             val currentNames = dao.getProfiles().map { it.name.lowercase(java.util.Locale.ROOT) }.toMutableSet()
@@ -80,6 +80,8 @@ class DocumentRepository(context: Context) {
                 dao.insertProfileAssignment(DocumentProfileAssignmentEntity(document.id, defaultId, document.category))
             }
             prefs.edit().putBoolean("builtins_seeded_v1", true).commit()
+        } finally {
+            profileSeedMutex.unlock()
         }
     }
 
