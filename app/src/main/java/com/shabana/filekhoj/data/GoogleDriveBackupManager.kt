@@ -13,6 +13,7 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import com.shabana.filekhoj.data.BackupArchiveIO
 import java.io.IOException
 import java.net.URLEncoder
 import java.util.concurrent.TimeUnit
@@ -116,7 +117,9 @@ class GoogleDriveBackupManager(private val context: Context) {
             val temp = File(destination.parentFile, destination.name + ".tmp")
             try {
                 response.body?.byteStream()?.use { input ->
-                    temp.outputStream().buffered().use { output -> input.copyTo(output) }
+                    temp.outputStream().buffered().use { output ->
+                        BackupArchiveIO.copyBounded(input, output)
+                    }
                 } ?: throw IOException("Google Drive returned an empty response.")
                 if (!temp.isFile || temp.length() <= 0L) throw IOException("Downloaded backup is empty.")
                 check(BackupFilePromotion.promote(temp, destination)) {
