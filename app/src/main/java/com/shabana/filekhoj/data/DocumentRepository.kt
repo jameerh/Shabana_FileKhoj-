@@ -101,8 +101,9 @@ class DocumentRepository(context: Context) {
                             managedCopy = preparation.file
                             encryptedSource = true
                             storedDecrypted = true
-                            signatureStatus = preparation.signatureStatus
-                            signatureCount = preparation.signatureCount
+                            // The managed PDF is a rewritten derivative, not the signed source bytes.
+                            signatureStatus = DocumentEntity.SIGNATURE_STATUS_UNKNOWN
+                            signatureCount = 0
                         }
                         PdfPreparationResult.PasswordRequired -> {
                             passwordRequired += uri
