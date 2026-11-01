@@ -71,11 +71,11 @@ class DocumentRepositoryInstrumentedTest {
             }
 
             val result = SecurePdfImporter(context).prepare(android.net.Uri.fromFile(source), "user-password")
-            assertTrue("Encrypted source should produce a decrypted private copy.", result is PdfPreparationResult.DecryptedCopy)
-            result as PdfPreparationResult.DecryptedCopy
-            decryptedCopy = result.file
-            assertEquals(DocumentEntity.SIGNATURE_STATUS_UNKNOWN, result.signatureStatus)
-            assertEquals(0, result.signatureCount)
+            val decryptedResult = result as? PdfPreparationResult.DecryptedCopy
+                ?: throw AssertionError("Encrypted source should produce a decrypted private copy.")
+            decryptedCopy = decryptedResult.file
+            assertEquals(DocumentEntity.SIGNATURE_STATUS_UNKNOWN, decryptedResult.signatureStatus)
+            assertEquals(0, decryptedResult.signatureCount)
         } finally {
             decryptedCopy?.delete()
             source.delete()
