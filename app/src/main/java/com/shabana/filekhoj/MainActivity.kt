@@ -694,6 +694,10 @@ private fun FileKhojApp(
     val drawerState = androidx.compose.material3.rememberDrawerState(DrawerValue.Closed)
 
     LaunchedEffect(repository) {
+        repository.reindexExistingDocumentsForOcrQualityGate()
+    }
+
+    LaunchedEffect(repository) {
         repository.observeDocuments().collect { incoming ->
             documents = incoming
             selectedIds = selectedIds.intersect(incoming.map { it.id }.toSet())
