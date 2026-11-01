@@ -63,10 +63,10 @@ interface DocumentDao {
 
     @Query("""
         SELECT documents.* FROM documents
+        INNER JOIN document_fts ON document_fts.rowid = documents.id
         INNER JOIN document_profile_assignments ON document_profile_assignments.documentId = documents.id
         WHERE document_profile_assignments.profileId = :profileId
           AND document_fts MATCH :ftsQuery
-        INNER JOIN document_fts ON document_fts.rowid = documents.id
         ORDER BY documents.dateAdded DESC, documents.id DESC
     """)
     suspend fun searchFullTextInProfile(ftsQuery: String, profileId: Long): List<DocumentEntity>
