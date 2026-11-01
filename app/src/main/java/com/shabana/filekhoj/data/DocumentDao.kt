@@ -133,6 +133,9 @@ interface DocumentDao {
     @Query("SELECT * FROM documents WHERE sourceUri = :sourceUri LIMIT 1")
     suspend fun findBySourceUri(sourceUri: String): DocumentEntity?
 
+    @Query("SELECT * FROM documents WHERE contentHash = :contentHash LIMIT 1")
+    suspend fun findByContentHash(contentHash: String): DocumentEntity?
+
     @Query("SELECT * FROM documents WHERE id = :id LIMIT 1")
     suspend fun findById(id: Long): DocumentEntity?
 
