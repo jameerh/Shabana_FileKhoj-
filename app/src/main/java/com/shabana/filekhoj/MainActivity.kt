@@ -883,18 +883,29 @@ private fun FileKhojApp(
                     Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 3.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    IconButton(onClick = { scope.launch { drawerState.open() } }) {
+                    IconButton(
+                        onClick = { scope.launch { drawerState.open() } },
+                        modifier = Modifier.semantics { contentDescription = "Open navigation menu" }
+                    ) {
                         Text("☰", fontSize = 24.sp, color = Color(0xFF07583D))
                     }
                     Column(Modifier.weight(1f)) {
                         Text("शबाना FileKhoj", style = MaterialTheme.typography.titleMedium,
                             color = Color(0xFF07583D), fontWeight = FontWeight.Bold)
                     }
-                    IconButton(onClick = { showBrandHero = !showBrandHero }) {
+                    IconButton(
+                        onClick = { showBrandHero = !showBrandHero },
+                        modifier = Modifier.semantics {
+                            contentDescription = if (showBrandHero) "Collapse app introduction" else "Expand app introduction"
+                        }
+                    ) {
                         Text(if (showBrandHero) "⌃" else "⌄", fontSize = 22.sp,
                             color = Color(0xFF07583D), fontWeight = FontWeight.Bold)
                     }
-                    IconButton(onClick = { showProfile = true }) {
+                    IconButton(
+                        onClick = { showProfile = true },
+                        modifier = Modifier.semantics { contentDescription = "Open user profile and registration" }
+                    ) {
                         Text(activeProfile?.name?.firstOrNull()?.uppercaseChar()?.toString() ?: "♙",
                             fontSize = 22.sp, color = Color(0xFF07583D), fontWeight = FontWeight.Bold)
                     }
@@ -1181,6 +1192,7 @@ private fun FileKhojApp(
                 Box(Modifier.align(Alignment.BottomEnd).padding(16.dp)) {
                     FloatingActionButton(
                         onClick = { showImportMenu = true },
+                        modifier = Modifier.semantics { contentDescription = "Import documents" },
                         containerColor = Color(0xFF07583D),
                         contentColor = Color.White,
                         shape = CircleShape
@@ -1584,6 +1596,10 @@ private fun FileKhojApp(
                     androidx.compose.material3.IconButton(
                         onClick = { showBackupDialog = false },
                         modifier = Modifier.size(40.dp)
+                    ,
+                        modifier = Modifier
+                            .size(48.dp)
+                            .semantics { contentDescription = "Close Backup and Restore dialog" }
                     ) {
                         Text("✕", style = MaterialTheme.typography.titleMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant)
