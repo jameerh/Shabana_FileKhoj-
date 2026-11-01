@@ -270,6 +270,36 @@ class MainActivity : ComponentActivity() {
             }
         }
 
+        importFolderLauncher = registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { treeUri ->
+            if (treeUri == null) {
+                importStatus.value = "Folder import cancelled. No files were changed."
+                return@registerForActivityResult
+            }
+            try {
+                contentResolver.takePersistableUriPermission(treeUri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            } catch (_: SecurityException) {
+                // Some providers grant only temporary access; scanning still proceeds now.
+            }
+            lifecycleScope.launch {
+                importStatus.value = "Scanning the selected folder for supported documents…"
+                try {
+                    val selected = withContext(Dispatchers.IO) { collectImportableUris(treeUri) }
+                    if (selected.isEmpty()) {
+                        importStatus.value = "No supported documents were found in the selected folder."
+                    } else {
+                        repository.seedDefaultProfilesIfNeeded()
+                        val destinationProfile = activeWorkspaceDestinationId()
+                        val result = withContext(Dispatchers.IO) {
+                            repository.importDocuments(selected, profileId = destinationProfile)
+                        }
+                        importStatus.value = "Folder import complete: ${result.imported} imported, ${result.alreadyPresent} already present, ${result.failed} failed. Scanned up to $MAX_FOLDER_IMPORT_FILES files."
+                    }
+                } catch (error: Exception) {
+                    importStatus.value = "Folder import failed: ${error.message ?: error.javaClass.simpleName}"
+                }
+            }
+        }
+
         documentPicker = registerForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { selectedUris ->
             if (selectedUris.isNullOrEmpty()) return@registerForActivityResult
             selectedUris.forEach { uri ->
