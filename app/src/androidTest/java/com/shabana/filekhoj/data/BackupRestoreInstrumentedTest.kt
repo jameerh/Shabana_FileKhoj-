@@ -119,6 +119,48 @@ class BackupRestoreInstrumentedTest {
     }
 
     @Test
+    fun versionTwoBackupRestoresWithDefaultWorkspaceAssignment() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val dao = DocumentDatabase.getInstance(context).documentDao()
+        val manager = BackupRestoreManager(context)
+        val token = UUID.randomUUID().toString()
+        val source = File(context.filesDir, "documents/backup-v2-$token.txt")
+        val archive = File(context.cacheDir, "backup-v3-source-$token.zip")
+        val legacy = File(context.cacheDir, "backup-v2-$token.zip")
+        val beforeIds = dao.getAllForBackup().map { it.id }.toSet()
+        try {
+            check(source.parentFile?.mkdirs() == true || source.parentFile?.isDirectory == true)
+            source.writeText("Version two archive compatibility")
+            val sourceId = dao.insert(
+                DocumentEntity(
+                    displayName = "backup-v2-$token.txt",
+                    mimeType = "text/plain",
+                    sizeBytes = source.length(),
+                    sourceUri = "content://filekhoj-v2/$token",
+                    dateAdded = System.currentTimeMillis(),
+                    sourceLastModified = null,
+                    managedPath = source.absolutePath
+                )
+            )
+            assertTrue(sourceId > 0L)
+            manager.createBackup(archive)
+            rewriteAsLegacyVersionTwo(archive, legacy)
+
+            val result = manager.restoreBackup(legacy)
+            assertEquals(1, result.restored)
+            val restored = dao.getAllForBackup().first { it.id !in beforeIds && it.id != sourceId }
+            val defaultProfile = dao.ensureDefaultProfile()
+            assertTrue(defaultProfile in dao.getProfileIdsForDocument(restored.id))
+            assertEquals("Version two archive compatibility", File(restored.managedPath!!).readText())
+        } finally {
+            cleanup(context, dao, beforeIds)
+            archive.delete()
+            legacy.delete()
+            source.delete()
+        }
+    }
+
+    @Test
     fun versionOneBackupWithoutHashesStillRestores() = runBlocking {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val dao = DocumentDatabase.getInstance(context).documentDao()
@@ -160,7 +202,7 @@ class BackupRestoreInstrumentedTest {
     }
 
     @Test
-    fun versionTwoBackupCannotDropPayloadIntegrityMetadata() = runBlocking {
+    fun versionThreeBackupCannotDropPayloadIntegrityMetadata() = runBlocking {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val dao = DocumentDatabase.getInstance(context).documentDao()
         val manager = BackupRestoreManager(context)
@@ -189,7 +231,7 @@ class BackupRestoreInstrumentedTest {
 
             val idsBeforeRestore = dao.getAllForBackup().map { it.id }.toSet()
             val failure = runCatching { manager.restoreBackup(stripped) }.exceptionOrNull()
-            assertTrue("Version 2 archive without payload hashes must be rejected.", failure is IllegalArgumentException)
+            assertTrue("Version 3 archive without payload hashes must be rejected.", failure is IllegalArgumentException)
             assertEquals(idsBeforeRestore, dao.getAllForBackup().map { it.id }.toSet())
         } finally {
             cleanup(context, dao, beforeIds)
@@ -278,6 +320,33 @@ class BackupRestoreInstrumentedTest {
             archive.delete()
             tampered.delete()
             source.delete()
+        }
+    }
+
+    private fun rewriteAsLegacyVersionTwo(source: File, destination: File) {
+        ZipInputStream(source.inputStream().buffered()).use { input ->
+            ZipOutputStream(destination.outputStream().buffered()).use { output ->
+                while (true) {
+                    val entry = input.nextEntry ?: break
+                    output.putNextEntry(ZipEntry(entry.name))
+                    var bytes = input.readBytes()
+                    if (entry.name == BackupRestoreManager.MANIFEST) {
+                        val manifest = JSONObject(String(bytes, Charsets.UTF_8))
+                        manifest.put("version", 2)
+                        manifest.remove("profiles")
+                        val rows = manifest.getJSONArray("documents")
+                        for (index in 0 until rows.length()) {
+                            val row = rows.getJSONObject(index)
+                            row.remove("profileAssignments")
+                            row.remove("reminder")
+                        }
+                        bytes = manifest.toString().toByteArray(Charsets.UTF_8)
+                    }
+                    output.write(bytes)
+                    output.closeEntry()
+                    input.closeEntry()
+                }
+            }
         }
     }
 
