@@ -31,6 +31,28 @@ class DocumentRepository(context: Context) {
     fun observeDocuments(): Flow<List<DocumentEntity>> = dao.observeAll()
     fun observeCount(): Flow<Int> = dao.observeCount()
 
+    /**
+     * Reprocess the existing library once after the OCR quality gate is introduced.
+     * This corrects legacy INDEXED labels written without confidence/coverage checks.
+     */
+    suspend fun reindexExistingDocumentsForOcrQualityGate() = withContext(Dispatchers.IO) {
+        val migrationPrefs = appContext.getSharedPreferences("filekhoj_index_quality", Context.MODE_PRIVATE)
+        if (migrationPrefs.getBoolean("quality_gate_reindex_v1_complete", false)) return@withContext
+
+        dao.getAllForBackup().forEach { document ->
+            dao.updateIndexStatus(document.id, DocumentEntity.INDEX_STATUS_QUEUED)
+            val request = OneTimeWorkRequestBuilder<DocumentIndexWorker>()
+                .setInputData(workDataOf(DocumentIndexWorker.KEY_DOCUMENT_ID to document.id))
+                .build()
+            WorkManager.getInstance(appContext).enqueueUniqueWork(
+                "filekhoj-index-${document.id}",
+                ExistingWorkPolicy.REPLACE,
+                request
+            )
+        }
+        migrationPrefs.edit().putBoolean("quality_gate_reindex_v1_complete", true).commit()
+    }
+
     suspend fun searchDocuments(query: String): List<DocumentEntity> = withContext(Dispatchers.IO) {
         val terms = query.trim().split(Regex("\\s+")).filter(String::isNotBlank)
         if (terms.isEmpty()) return@withContext emptyList()
