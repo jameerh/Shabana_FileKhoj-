@@ -1,6 +1,6 @@
 # Shabana FileKhoj
 
-**तुमचे सर्व दस्तऐवज, शोधा क्षणार्धात!**  
+**तुमचे सर्व दस्तऐवज, शोधा क्षणार्त!**  
 *Save once. Search anything. Find instantly.*
 
 Shabana FileKhoj is an Android-first, offline-first document library for keeping local references to PDFs, images and supported documents, then finding them by filename or locally indexed text.
@@ -22,7 +22,7 @@ Shabana FileKhoj is an Android-first, offline-first document library for keeping
 
 ## Offline and registration model
 
-Document import, indexing and search are designed to operate on the device without a document cloud. Registration profiles are stored locally on the current phone. On a fresh installation, the person setting up the phone chooses whether it is the local administrator or a user. User registration requires the central admin WhatsApp number. The admin panel only lists profiles stored on that same phone.
+Document import, indexing and search are designed to operate on the device without a document cloud. Registration profiles are stored locally on the current phone. On a fresh installation, the person setting up the phone chooses whether the device is the local administrator or a user. User registration requires the central admin WhatsApp number. The admin panel only lists profiles stored on that same phone.
 
 For a multi-device rollout, configure the central admin's WhatsApp number on each user device before registration. A user registration opens WhatsApp with the name, mobile number, locality, app name and automatically generated registration date prefilled. The user must send the message in WhatsApp and confirm in FileKhoj. Android cannot independently verify message delivery. WhatsApp notification requires connectivity, but the document library remains offline-first.
 
@@ -40,6 +40,10 @@ Before testing Google Drive on a device:
 4. Install the APK, open **Backup & Restore**, connect the Google account, then use **Backup to Drive** or **Restore latest from Drive**.
 
 The app requests only the `drive.file` scope. It creates and accesses its own backup folder and latest ZIP rather than requesting broad access to the user's entire Drive. Cloud backup requires network access; local document import, search and ZIP export remain available offline. Scheduled backups currently remain local-only.
+
+## Consistent APK updates
+
+GitHub Actions now supports a persistent signing keystore for repeatable in-place APK updates. Configure the four repository Actions secrets described in [docs/SIGNING.md](docs/SIGNING.md). The workflow intentionally does not publish APK artifacts until persistent signing is configured, preventing accidental distribution of APKs signed with a temporary runner key. **A new key cannot update an older installation signed with a different key.**
 
 ## Toolchain baseline
 
