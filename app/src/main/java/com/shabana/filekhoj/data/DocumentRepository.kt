@@ -101,8 +101,7 @@ class DocumentRepository(context: Context) {
                             managedCopy = preparation.file
                             encryptedSource = true
                             storedDecrypted = true
-                            // The decrypted file is a rewritten derivative. Never attach
-                            // the original encrypted PDF's signature verdict to this copy.
+                            // The managed PDF is a rewritten derivative, not the signed source bytes.
                             signatureStatus = DocumentEntity.SIGNATURE_STATUS_UNKNOWN
                             signatureCount = 0
                         }

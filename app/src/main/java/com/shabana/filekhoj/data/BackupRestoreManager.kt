@@ -71,11 +71,17 @@ class BackupRestoreManager(context: Context) {
             zip.write(manifest.toString().toByteArray(Charsets.UTF_8))
             zip.closeEntry()
         }
+        require(destination.length() <= BackupArchiveIO.MAX_ARCHIVE_BYTES) {
+            "Backup archive exceeds the allowed file size."
+        }
         return BackupResult(documents.size, bytes, destination.length())
     }
 
     suspend fun restoreBackup(source: File): RestoreResult {
         require(source.isFile && source.length() > 0L) { "Backup archive is empty or missing." }
+        require(source.length() <= BackupArchiveIO.MAX_ARCHIVE_BYTES) {
+            "Backup archive exceeds the allowed file size."
+        }
         val stagingDir = File(app.cacheDir, "filekhoj-restore-${UUID.randomUUID()}")
         check(stagingDir.mkdirs()) { "Could not create private restore staging directory." }
         val stagedEntries = linkedMapOf<String, File>()
@@ -141,12 +147,20 @@ class BackupRestoreManager(context: Context) {
                 val staged = stagedEntries[entryName]
                     ?: throw IllegalArgumentException("Backup is incomplete: missing document payload.")
                 val expectedHash = row.optString("payloadSha256").takeIf(String::isNotBlank)
+                val expectedSize = row.optLong("payloadSizeBytes", -1L)
+                if (archiveVersion >= 2) {
+                    require(expectedHash != null && expectedHash.matches(Regex("[0-9a-fA-F]{64}"))) {
+                        "Version 2 backup is missing a valid SHA-256 payload digest."
+                    }
+                    require(expectedSize >= 0L) {
+                        "Version 2 backup is missing a payload byte count."
+                    }
+                }
                 if (expectedHash != null) {
                     require(expectedHash.equals(sha256(staged), ignoreCase = true)) {
                         "Backup document integrity check failed."
                     }
                 }
-                val expectedSize = row.optLong("payloadSizeBytes", -1L)
                 if (expectedSize >= 0L) {
                     require(expectedSize == staged.length()) { "Backup document size check failed." }
                 }
@@ -165,6 +179,9 @@ class BackupRestoreManager(context: Context) {
                     target.outputStream().buffered().use { output -> input.copyTo(output) }
                 }
                 val uri = FileProvider.getUriForFile(app, "${app.packageName}.fileprovider", target)
+                val restoredMimeType = row.optString("mimeType", "application/octet-stream")
+                val restoredIsPdf = restoredMimeType.contains("pdf", ignoreCase = true) ||
+                    safeName.endsWith(".pdf", ignoreCase = true)
                 val encryptedSource = row.optBoolean("isEncryptedSource", false)
                 val storedDecrypted = if (row.has("isStoredDecrypted")) {
                     row.optBoolean("isStoredDecrypted", false)
@@ -185,7 +202,7 @@ class BackupRestoreManager(context: Context) {
                 pendingFiles += target
                 pendingDocuments += DocumentEntity(
                     displayName = safeName,
-                    mimeType = row.optString("mimeType", "application/octet-stream"),
+                    mimeType = restoredMimeType,
                     sizeBytes = target.length(),
                     sourceUri = uri.toString(),
                     dateAdded = row.optLong("dateAdded", System.currentTimeMillis()),
@@ -194,7 +211,11 @@ class BackupRestoreManager(context: Context) {
                     contentHash = if (row.isNull("contentHash")) null else row.optString("contentHash"),
                     // Archive manifests are unsigned and user-editable. Never trust a restored
                     // signature verdict from metadata; it must be re-evaluated against the restored bytes.
-                    signatureStatus = DocumentEntity.SIGNATURE_STATUS_UNKNOWN,
+                    signatureStatus = if (restoredIsPdf) {
+                        DocumentEntity.SIGNATURE_STATUS_UNKNOWN
+                    } else {
+                        DocumentEntity.SIGNATURE_STATUS_UNSIGNED
+                    },
                     signatureCount = 0,
                     isEncryptedSource = encryptedSource,
                     isStoredDecrypted = storedDecrypted,
