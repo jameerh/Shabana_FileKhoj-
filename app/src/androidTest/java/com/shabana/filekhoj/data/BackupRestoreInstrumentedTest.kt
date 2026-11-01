@@ -54,6 +54,7 @@ class BackupRestoreInstrumentedTest {
             assertEquals("backup-test-$token.txt", added.single().displayName)
             assertEquals("test", added.single().category)
             assertTrue(added.single().isFavourite)
+            assertEquals(DocumentEntity.SIGNATURE_STATUS_UNSIGNED, added.single().signatureStatus)
             assertEquals("Shabana FileKhoj backup restore test", File(added.single().managedPath!!).readText())
         } finally {
             cleanup(context, dao, beforeIds)
@@ -118,8 +119,8 @@ class BackupRestoreInstrumentedTest {
             source.writeText("Signature status must never be trusted from unsigned backup metadata")
             val sourceId = dao.insert(
                 DocumentEntity(
-                    displayName = "backup-signature-$token.txt",
-                    mimeType = "text/plain",
+                    displayName = "backup-signature-$token.pdf",
+                    mimeType = "application/pdf",
                     sizeBytes = source.length(),
                     sourceUri = "content://filekhoj-test/$token",
                     dateAdded = System.currentTimeMillis(),
