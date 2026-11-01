@@ -35,7 +35,7 @@ Share one or multiple supported files to Shabana FileKhoj. The app assigns them 
 Choose **Import a folder (WhatsApp / device)** and grant access using Android's system folder picker. FileKhoj recursively scans the selected accessible folder, imports supported documents, and assigns them to the current or last-used destination workspace. Scanning is capped at 5,000 files and 12 directory levels. Android may restrict some private or system-managed folders; the app cannot bypass those platform permissions.
 
 ### Duplicate detection
-For accessible imports up to 512 MB, FileKhoj calculates a SHA-256 content hash. If identical content already exists, it reuses the existing document record and adds the destination workspace assignment. Larger files imported through the normal picker skip content hashing; shared files that must be copied into managed storage are limited to 512 MB. Hashes identify identical bytes; they do not authenticate a document or prove its origin.
+For accessible imports up to 512 MB, FileKhoj calculates a SHA-256 content hash. If identical content already exists, it reuses the existing document record and adds the destination workspace assignment. Larger files imported through the normal picker skip content hashing; shared/folder imports that must be copied into managed storage are limited to 512 MB. Hashes identify identical bytes; they do not authenticate a document or prove its origin.
 
 ### Suggested classification
 Local filename and MIME-type rules can suggest a workspace and category. Suggestions are not applied automatically. Users must tap **Apply** or use the bulk move/assign action. Classification is intentionally conservative and does not inspect or upload document content to a cloud service.
