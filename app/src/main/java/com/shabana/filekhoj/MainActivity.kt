@@ -813,6 +813,12 @@ private fun FileKhojApp(
     var documents by remember { mutableStateOf(emptyList<DocumentEntity>()) }
     var workspaceProfiles by remember { mutableStateOf(emptyList<DocumentProfileEntity>()) }
     var workspaceAssignments by remember { mutableStateOf(emptyList<DocumentProfileAssignmentEntity>()) }
+    var reminders by remember { mutableStateOf(emptyList<DocumentReminderEntity>()) }
+    var showReminderDialog by remember { mutableStateOf(false) }
+    var reminderTargetId by remember { mutableStateOf<Long?>(null) }
+    var reminderLabelDraft by remember { mutableStateOf("Document expiry") }
+    var reminderDateMillis by remember { mutableStateOf(System.currentTimeMillis() + 30L * 24L * 60L * 60L * 1000L) }
+    var showStorageDashboard by remember { mutableStateOf(false) }
     val workspacePrefs = remember(context) { context.getSharedPreferences("filekhoj_document_profiles", Context.MODE_PRIVATE) }
     var activeWorkspaceId by remember { mutableStateOf(workspacePrefs.getLong("active_profile_id", 1L).takeIf { it > 0L }) }
     var showWorkspaceManager by remember { mutableStateOf(false) }
@@ -886,6 +892,9 @@ private fun FileKhojApp(
     }
     LaunchedEffect(repository) {
         repository.observeProfileAssignments().collect { workspaceAssignments = it }
+    }
+    LaunchedEffect(repository) {
+        repository.observeReminders().collect { reminders = it }
     }
     LaunchedEffect(repository) {
         repository.observeDocuments().collect { incoming ->
@@ -1020,6 +1029,10 @@ private fun FileKhojApp(
                         dateFilter = DateFilter.ANY
                         signatureFilter = SignatureFilter.ANY
                         selectedCategory = "All categories"
+                        scope.launch { drawerState.close() }
+                    })
+                    NavigationDrawerItem(label = { Text("▤  Storage insights & reminders") }, selected = false, onClick = {
+                        showStorageDashboard = true
                         scope.launch { drawerState.close() }
                     })
                     NavigationDrawerItem(label = { Text("▦  Document workspaces") }, selected = false, onClick = {
@@ -1330,6 +1343,17 @@ private fun FileKhojApp(
                                             }
                                         }) { Text("✎ Edit") }
                                         TextButton(onClick = { showMoveProfileDialog = true }) { Text("⇄ Move / assign") }
+                                        TextButton(onClick = {
+                                            val selectedId = visibleSelectedIds.singleOrNull()
+                                            if (selectedId == null) onStatus("Select exactly one document to set a reminder.")
+                                            else {
+                                                reminderTargetId = selectedId
+                                                val existing = reminders.firstOrNull { it.documentId == selectedId }
+                                                reminderLabelDraft = existing?.label ?: "Document expiry"
+                                                reminderDateMillis = existing?.dueAt ?: (System.currentTimeMillis() + 30L * 24L * 60L * 60L * 1000L)
+                                                showReminderDialog = true
+                                            }
+                                        }) { Text("⏰ Reminder") }
                                     }
                                     Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                                         horizontalArrangement = Arrangement.spacedBy(4.dp),
