@@ -31,7 +31,7 @@ done
 echo "Waiting for PackageManager and ActivityManager services..."
 service_start=$(date +%s)
 while :; do
-  if adb shell cmd package list packages >/dev/null 2>&1 &&
+  if adb shell cmd package list packages 2>/dev/null | grep -q '^package:' &&
      adb shell dumpsys activity services >/dev/null 2>&1; then
     break
   fi
