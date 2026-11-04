@@ -98,14 +98,19 @@ jobs:
           emulator-boot-timeout: 1200
           emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -no-snapshot -wipe-data
           script: |
-            set -uo pipefail
+            set -eu
             mkdir -p app/build/ci-diagnostics
 
             echo "Waiting for Android boot completion..."
             adb wait-for-device
-            boot_deadline=$((SECONDS + 600))
-            until [[ "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\\r')" == "1" ]]; do
-              if (( SECONDS >= boot_deadline )); then
+            boot_start=$(date +%s)
+            while :; do
+              boot_completed=$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || true)
+              if [ "$boot_completed" = "1" ]; then
+                break
+              fi
+              now=$(date +%s)
+              if [ $((now - boot_start)) -ge 600 ]; then
                 echo "::error::Android emulator did not complete boot within 600 seconds."
                 adb shell getprop > app/build/ci-diagnostics/getprop-timeout.txt 2>&1 || true
                 adb shell dumpsys -l > app/build/ci-diagnostics/services-timeout.txt 2>&1 || true
@@ -116,9 +121,9 @@ jobs:
             done
 
             echo "Waiting for PackageManager and ActivityManager services..."
-            service_deadline=$((SECONDS + 300))
+            service_start=$(date +%s)
             services_ready=false
-            while (( SECONDS < service_deadline )); do
+            while :; do
               package_ready=false
               activity_ready=false
               if adb shell cmd package list packages >/dev/null 2>&1; then
@@ -127,14 +132,18 @@ jobs:
               if adb shell dumpsys activity services >/dev/null 2>&1; then
                 activity_ready=true
               fi
-              if [[ "$package_ready" == "true" && "$activity_ready" == "true" ]]; then
+              if [ "$package_ready" = "true" ] && [ "$activity_ready" = "true" ]; then
                 services_ready=true
+                break
+              fi
+              now=$(date +%s)
+              if [ $((now - service_start)) -ge 300 ]; then
                 break
               fi
               sleep 5
             done
 
-            if [[ "$services_ready" != "true" ]]; then
+            if [ "$services_ready" != "true" ]; then
               echo "::error::Android package/activity services did not become responsive."
               adb shell getprop > app/build/ci-diagnostics/getprop-service-timeout.txt 2>&1 || true
               adb shell dumpsys -l > app/build/ci-diagnostics/services-service-timeout.txt 2>&1 || true
@@ -143,6 +152,7 @@ jobs:
             fi
 
             echo "Android boot and core package services are ready."
+            test_status=0
             if gradle connectedDebugAndroidTest; then
               test_status=0
             else
