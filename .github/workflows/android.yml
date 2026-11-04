@@ -97,7 +97,62 @@ jobs:
           disable-animations: true
           emulator-boot-timeout: 1200
           emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -no-snapshot -wipe-data
-          script: if gradle connectedDebugAndroidTest; then test_status=0; else test_status=$?; fi; mkdir -p app/build/ci-diagnostics; adb logcat -d -v threadtime > app/build/ci-diagnostics/logcat.txt 2>&1; adb shell dumpsys activity processes > app/build/ci-diagnostics/activity-processes.txt 2>&1; exit "$test_status"
+          script: |
+            set -uo pipefail
+            mkdir -p app/build/ci-diagnostics
+
+            echo "Waiting for Android boot completion..."
+            adb wait-for-device
+            boot_deadline=$((SECONDS + 600))
+            until [[ "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\\r')" == "1" ]]; do
+              if (( SECONDS >= boot_deadline )); then
+                echo "::error::Android emulator did not complete boot within 600 seconds."
+                adb shell getprop > app/build/ci-diagnostics/getprop-timeout.txt 2>&1 || true
+                adb shell dumpsys -l > app/build/ci-diagnostics/services-timeout.txt 2>&1 || true
+                adb logcat -d -v threadtime > app/build/ci-diagnostics/logcat-timeout.txt 2>&1 || true
+                exit 1
+              fi
+              sleep 5
+            done
+
+            echo "Waiting for PackageManager and ActivityManager services..."
+            service_deadline=$((SECONDS + 300))
+            services_ready=false
+            while (( SECONDS < service_deadline )); do
+              package_ready=false
+              activity_ready=false
+              if adb shell cmd package list packages >/dev/null 2>&1; then
+                package_ready=true
+              fi
+              if adb shell dumpsys activity services >/dev/null 2>&1; then
+                activity_ready=true
+              fi
+              if [[ "$package_ready" == "true" && "$activity_ready" == "true" ]]; then
+                services_ready=true
+                break
+              fi
+              sleep 5
+            done
+
+            if [[ "$services_ready" != "true" ]]; then
+              echo "::error::Android package/activity services did not become responsive."
+              adb shell getprop > app/build/ci-diagnostics/getprop-service-timeout.txt 2>&1 || true
+              adb shell dumpsys -l > app/build/ci-diagnostics/services-service-timeout.txt 2>&1 || true
+              adb logcat -d -v threadtime > app/build/ci-diagnostics/logcat-service-timeout.txt 2>&1 || true
+              exit 1
+            fi
+
+            echo "Android boot and core package services are ready."
+            if gradle connectedDebugAndroidTest; then
+              test_status=0
+            else
+              test_status=$?
+            fi
+
+            adb logcat -d -v threadtime > app/build/ci-diagnostics/logcat.txt 2>&1 || true
+            adb shell dumpsys activity processes > app/build/ci-diagnostics/activity-processes.txt 2>&1 || true
+            adb shell dumpsys package > app/build/ci-diagnostics/package-manager.txt 2>&1 || true
+            exit "$test_status"
 
       - name: Upload instrumentation diagnostics
         if: always()
