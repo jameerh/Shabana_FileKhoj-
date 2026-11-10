@@ -26,6 +26,7 @@ Merged in PR #5:
 - [x] Add backup round-trip and payload-tampering instrumentation tests.
 - [x] Add Android-emulator instrumentation CI.
 - [x] GitHub Actions build and instrumentation jobs passed for the Phase 2 PR head.
+- [x] Emulator readiness CI correction merged as PR #11; its clean run completed build/unit tests and 10/10 instrumentation tests.
 - [ ] Test scanned Aadhaar/PAN PDFs, mixed native-text/scanned PDFs, long PDFs, poor-quality images, and Marathi/English mixed content on physical devices.
 - [ ] Check large font scaling, TalkBack navigation, and narrow-screen layout on supported Android versions.
 
@@ -62,15 +63,15 @@ Implemented in the Phase 4 code changes:
 - [x] Build and unit-test job passed on the original Phase 4 PR head; a clean main-based PR was prepared to avoid reintroducing old Phase 2 history.
 - [x] Phase 4 implementation merged to `main` as `628c1a13cea5cc097d044f5193ea13e828b92885`.
 - [x] Build and unit-test job passed on the original Phase 4 PR head.
-- [ ] Confirm instrumentation tests pass on the merged Phase 4 commit. The earlier instrumentation attempt failed during emulator boot; a retry is in progress and must finish before this gate is certified.
+- [x] Confirm Android emulator instrumentation passes after the Phase 5 CI readiness fix: 10/10 tests passed on PR #11 head `c5e955d537f3696e495986fa0900fa12fb35ac0e` (based on the merged Phase 4 `main` commit); CI run [41792789781](https://github.com/jameerh/Shabana_FileKhoj-/actions/runs/41792789781).
 - [ ] Verify large/scanned PDFs, low-storage archive restore, and provider-specific file handling on physical Android devices.
 
 ## Release gate (post-Phase 4)
 
-- [ ] All required unit and instrumentation CI jobs pass on the latest release candidate.
+- [ ] All required unit and instrumentation CI jobs pass on the latest release candidate. PR #11 CI passed (build/unit tests and 10/10 instrumentation tests); the post-merge `main` run must also finish green.
 - [ ] Review the full diff and confirm no user documents, secrets, signing keys, or generated outputs are committed.
 - [ ] Install and test the APK on a physical Android device: import, unlock, search, export, backup/restore, PDF editing, and accessibility.
-- [ ] Configure a persistent signing key before publishing update-compatible APK artifacts.
+- [ ] Configure all four persistent signing secrets and verify a signed release artifact. The signing integration is in `main`; the CI run skipped release APK creation and artifact upload because secrets are not configured/available to this run.
 - [ ] Publish the APK artifact only from the exact commit that passed all required checks.
 
 ## Known bounded behaviors
