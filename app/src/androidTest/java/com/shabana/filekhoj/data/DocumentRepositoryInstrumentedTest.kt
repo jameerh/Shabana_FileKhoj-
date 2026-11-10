@@ -60,6 +60,44 @@ class DocumentRepositoryInstrumentedTest {
     }
 
     @Test
+    fun identicalContentImportsOnceAndAddsWorkspaceAssignment() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val dao = DocumentDatabase.getInstance(context).documentDao()
+        val repository = DocumentRepository(context)
+        val token = UUID.randomUUID().toString()
+        val first = File(context.filesDir, "documents/duplicate-a-$token.txt")
+        val second = File(context.filesDir, "documents/duplicate-b-$token.txt")
+        val beforeIds = dao.getAllForBackup().map { it.id }.toSet()
+        var profileId = -1L
+        try {
+            check(first.parentFile?.mkdirs() == true || first.parentFile?.isDirectory == true)
+            first.writeText("same bytes for SHA-256 duplicate test")
+            second.writeText(first.readText())
+            val firstUri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", first)
+            val secondUri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", second)
+            val defaultId = repository.ensureDefaultProfile()
+            profileId = repository.createProfile("Duplicate-${token.take(8)}")
+
+            val firstResult = repository.importDocuments(listOf(firstUri), profileId = defaultId)
+            val secondResult = repository.importDocuments(listOf(secondUri), profileId = profileId)
+
+            assertEquals(1, firstResult.imported)
+            assertEquals(0, secondResult.imported)
+            assertEquals(1, secondResult.alreadyPresent)
+            val added = dao.getAllForBackup().filter { it.id !in beforeIds }
+            assertEquals("Duplicate content must not create a second row.", 1, added.size)
+            assertEquals(firstUri.toString(), added.single().sourceUri)
+            assertTrue(profileId in dao.getProfileIdsForDocument(added.single().id))
+            assertTrue(!added.single().contentHash.isNullOrBlank())
+        } finally {
+            cleanup(context, dao, beforeIds)
+            if (profileId > 0L) dao.getProfile(profileId)?.let { dao.deleteProfile(it) }
+            first.delete()
+            second.delete()
+        }
+    }
+
+    @Test
     fun decryptedEncryptedPdfDoesNotInheritSourceSignatureVerdict() = runBlocking {
         val context = ApplicationProvider.getApplicationContext<Context>()
         PDFBoxResourceLoader.init(context)

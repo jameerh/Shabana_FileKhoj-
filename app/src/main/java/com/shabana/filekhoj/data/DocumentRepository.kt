@@ -11,8 +11,10 @@ import androidx.work.WorkManager
 import androidx.work.workDataOf
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.security.MessageDigest
 
 data class ImportDocumentResult(
     val imported: Int,
@@ -31,6 +33,108 @@ class DocumentRepository(context: Context) {
     private val securePdfImporter by lazy { SecurePdfImporter(appContext) }
 
     fun observeDocuments(): Flow<List<DocumentEntity>> = dao.observeAll()
+    fun observeProfiles(): Flow<List<DocumentProfileEntity>> = dao.observeProfiles()
+    fun observeProfileAssignments(): Flow<List<DocumentProfileAssignmentEntity>> = dao.observeProfileAssignments()
+    fun observeReminders(): Flow<List<DocumentReminderEntity>> = dao.observeReminders()
+    suspend fun setReminder(documentId: Long, label: String, dueAt: Long) {
+        require(dao.findById(documentId) != null) { "Document no longer exists." }
+        val normalized = label.trim()
+        require(normalized.isNotEmpty() && normalized.length <= 80) { "Reminder name must be 1–80 characters." }
+        require(dueAt > 0L) { "Choose a valid reminder date." }
+        dao.upsertReminder(
+            DocumentReminderEntity(
+                documentId = documentId,
+                label = normalized,
+                dueAt = dueAt,
+                enabled = true,
+                notifiedAt = null,
+                createdAt = System.currentTimeMillis()
+            )
+        )
+    }
+    suspend fun removeReminder(documentId: Long) = dao.deleteReminder(documentId)
+    suspend fun ensureDefaultProfile(): Long = dao.ensureDefaultProfile()
+
+    suspend fun seedDefaultProfilesIfNeeded() = withContext(Dispatchers.IO) {
+        profileSeedMutex.lock()
+        try {
+            val prefs = appContext.getSharedPreferences("filekhoj_document_profiles", Context.MODE_PRIVATE)
+            if (prefs.getBoolean("builtins_seeded_v1", false)) return@withContext
+            val existing = dao.getProfiles()
+            if (existing.isEmpty()) dao.ensureDefaultProfile()
+            val currentNames = dao.getProfiles().map { it.name.lowercase(java.util.Locale.ROOT) }.toMutableSet()
+            DocumentProfileDefaults.profiles.forEach { profile ->
+                if (profile.name.lowercase(java.util.Locale.ROOT) !in currentNames) {
+                    val now = System.currentTimeMillis()
+                    dao.insertProfile(
+                        DocumentProfileEntity(
+                            name = profile.name, icon = profile.icon, colorArgb = profile.colorArgb,
+                            isDefault = profile.name == DocumentProfileEntity.DEFAULT_NAME,
+                            sortOrder = profile.sortOrder, createdAt = now, updatedAt = now
+                        )
+                    )
+                }
+            }
+            val defaultId = dao.ensureDefaultProfile()
+            dao.getAllForBackup().forEach { document ->
+                dao.insertProfileAssignment(DocumentProfileAssignmentEntity(document.id, defaultId, document.category))
+            }
+            prefs.edit().putBoolean("builtins_seeded_v1", true).commit()
+        } finally {
+            profileSeedMutex.unlock()
+        }
+    }
+
+    suspend fun createProfile(name: String, icon: String = "folder", colorArgb: Int = 0xFF07583D.toInt()): Long {
+        val normalized = name.trim()
+        require(normalized.isNotEmpty()) { "Profile name cannot be empty." }
+        require(normalized.length <= 40) { "Profile name must be 40 characters or fewer." }
+        require(dao.getProfiles().none { it.name.equals(normalized, ignoreCase = true) }) {
+            "A profile with this name already exists."
+        }
+        val now = System.currentTimeMillis()
+        val nextOrder = (dao.getProfiles().maxOfOrNull { it.sortOrder } ?: -1) + 1
+        return dao.insertProfile(
+            DocumentProfileEntity(
+                name = normalized, icon = icon, colorArgb = colorArgb,
+                isDefault = false, sortOrder = nextOrder, createdAt = now, updatedAt = now
+            )
+        )
+    }
+    suspend fun renameProfile(profileId: Long, name: String) {
+        val normalized = name.trim()
+        require(normalized.isNotEmpty() && normalized.length <= 40) { "Enter a profile name of 1–40 characters." }
+        val profile = dao.getProfile(profileId) ?: error("Profile not found.")
+        require(dao.getProfiles().none { it.id != profileId && it.name.equals(normalized, true) }) {
+            "A profile with this name already exists."
+        }
+        dao.updateProfile(profile.copy(name = normalized, updatedAt = System.currentTimeMillis()))
+    }
+    suspend fun assignDocumentsToProfile(documentIds: Collection<Long>, profileId: Long) {
+        require(dao.getProfile(profileId) != null) { "Destination profile no longer exists." }
+        dao.moveDocumentsBetweenProfiles(documentIds.distinct(), null, profileId)
+    }
+    suspend fun moveDocumentsToProfile(documentIds: Collection<Long>, sourceProfileId: Long?, targetProfileId: Long) {
+        require(dao.getProfile(targetProfileId) != null) { "Destination profile no longer exists." }
+        if (sourceProfileId != null) require(dao.getProfile(sourceProfileId) != null) { "Source profile no longer exists." }
+        dao.moveDocumentsBetweenProfiles(documentIds.distinct(), sourceProfileId, targetProfileId)
+    }
+    suspend fun removeDocumentFromProfile(documentId: Long, profileId: Long) {
+        val assignments = dao.getProfileIdsForDocument(documentId)
+        require(assignments.size > 1) { "A document must remain assigned to at least one profile." }
+        dao.removeProfileAssignment(documentId, profileId)
+    }
+    suspend fun deleteProfile(profileId: Long) {
+        val profile = dao.getProfile(profileId) ?: return
+        require(!profile.isDefault) { "The default profile cannot be deleted." }
+        val defaultId = dao.ensureDefaultProfile()
+        val documentIds = dao.getDocumentIdsForProfile(profileId)
+        dao.insertProfileAssignments(documentIds.map { DocumentProfileAssignmentEntity(it, defaultId) })
+        dao.deleteProfile(profile)
+    }
+    suspend fun setProfileCategory(documentId: Long, profileId: Long, category: String?) {
+        dao.updateProfileCategory(documentId, profileId, category?.trim()?.takeIf(String::isNotEmpty))
+    }
     fun observeCount(): Flow<Int> = dao.observeCount()
 
     /**
@@ -67,8 +171,11 @@ class DocumentRepository(context: Context) {
 
     suspend fun importDocuments(
         uris: List<Uri>,
-        passwordsByUri: Map<String, String> = emptyMap()
+        passwordsByUri: Map<String, String> = emptyMap(),
+        profileId: Long? = null,
+        copyToManagedStorage: Boolean = false
     ): ImportDocumentResult = withContext(Dispatchers.IO) {
+        val destinationProfileId = profileId?.takeIf { dao.getProfile(it) != null } ?: dao.ensureDefaultProfile()
         var imported = 0
         var alreadyPresent = 0
         var failed = 0
@@ -78,12 +185,35 @@ class DocumentRepository(context: Context) {
         uris.distinctBy { it.toString() }.forEach { uri ->
             var managedCopy: File? = null
             try {
-                if (dao.findBySourceUri(uri.toString()) != null) {
+                val existingDocument = dao.findBySourceUri(uri.toString())
+                if (existingDocument != null) {
+                    if (copyToManagedStorage && existingDocument.managedPath.isNullOrBlank()) {
+                        val durableCopy = copyIntoManagedStorage(uri, existingDocument.displayName)
+                        dao.update(existingDocument.copy(managedPath = durableCopy.absolutePath))
+                    }
+                    dao.insertProfileAssignment(
+                        DocumentProfileAssignmentEntity(existingDocument.id, destinationProfileId)
+                    )
                     alreadyPresent++
                     return@forEach
                 }
 
                 val metadata = queryMetadata(uri)
+                val contentHash = calculateContentHash(uri, metadata.sizeBytes)
+                if (contentHash != null) {
+                    val duplicate = dao.findByContentHash(contentHash)
+                    if (duplicate != null) {
+                        if (copyToManagedStorage && duplicate.managedPath.isNullOrBlank()) {
+                            val durableCopy = copyIntoManagedStorage(uri, metadata.displayName)
+                            dao.update(duplicate.copy(managedPath = durableCopy.absolutePath))
+                        }
+                        dao.insertProfileAssignment(
+                            DocumentProfileAssignmentEntity(duplicate.id, destinationProfileId)
+                        )
+                        alreadyPresent++
+                        return@forEach
+                    }
+                }
                 var encryptedSource = false
                 var storedDecrypted = false
                 var signatureStatus = DocumentEntity.SIGNATURE_STATUS_UNSIGNED
@@ -116,6 +246,10 @@ class DocumentRepository(context: Context) {
                     }
                 }
 
+                if (copyToManagedStorage && managedCopy == null) {
+                    managedCopy = copyIntoManagedStorage(uri, metadata.displayName)
+                }
+
                 val rowId = dao.insert(
                     DocumentEntity(
                         displayName = metadata.displayName,
@@ -127,6 +261,7 @@ class DocumentRepository(context: Context) {
                         isEncryptedSource = encryptedSource,
                         isStoredDecrypted = storedDecrypted,
                         managedPath = managedCopy?.absolutePath,
+                        contentHash = contentHash,
                         signatureStatus = signatureStatus,
                         signatureCount = signatureCount
                     )
@@ -135,6 +270,7 @@ class DocumentRepository(context: Context) {
                     alreadyPresent++
                     managedCopy?.delete()
                 } else {
+                    dao.insertProfileAssignment(DocumentProfileAssignmentEntity(rowId, destinationProfileId))
                     imported++
                     val queued = runCatching {
                         val indexRequest = OneTimeWorkRequestBuilder<DocumentIndexWorker>()
@@ -256,6 +392,65 @@ class DocumentRepository(context: Context) {
             sizeBytes = sizeBytes,
             lastModified = lastModified
         )
+    }
+
+
+    private fun calculateContentHash(uri: Uri, knownSize: Long): String? {
+        if (knownSize > MAX_MANAGED_IMPORT_BYTES) return null
+        return try {
+            val digest = MessageDigest.getInstance("SHA-256")
+            val input = resolver.openInputStream(uri) ?: return null
+            var total = 0L
+            input.use { stream ->
+                val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                while (true) {
+                    val count = stream.read(buffer)
+                    if (count < 0) break
+                    total += count
+                    if (total > MAX_MANAGED_IMPORT_BYTES) return null
+                    digest.update(buffer, 0, count)
+                }
+            }
+            digest.digest().joinToString("") { "%02x".format(it) }
+        } catch (_: Exception) {
+            // Hashing is a best-effort optimization; unsupported providers and very large files still import.
+            null
+        }
+    }
+
+    private fun copyIntoManagedStorage(uri: Uri, displayName: String): File {
+        val directory = File(appContext.filesDir, "documents/imported")
+        check(directory.exists() || directory.mkdirs()) { "Could not create private document storage." }
+        val extension = displayName.substringAfterLast('.', "").takeIf { it.matches(Regex("[A-Za-z0-9]{1,10}")) }
+            ?.let { ".$it" }.orEmpty()
+        val destination = File(directory, "import-${java.util.UUID.randomUUID()}$extension")
+        try {
+            val input = resolver.openInputStream(uri) ?: throw IllegalStateException("Could not read shared document.")
+            input.use { source ->
+                destination.outputStream().buffered().use { output ->
+                    val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                    var total = 0L
+                    while (true) {
+                        val count = source.read(buffer)
+                        if (count < 0) break
+                        total += count
+                        require(total <= MAX_MANAGED_IMPORT_BYTES) { "Document exceeds the 512 MB import limit." }
+                        output.write(buffer, 0, count)
+                    }
+                    output.flush()
+                }
+            }
+            require(destination.isFile && destination.length() > 0L) { "The selected document is empty." }
+            return destination
+        } catch (error: Exception) {
+            destination.delete()
+            throw error
+        }
+    }
+
+    companion object {
+        private val profileSeedMutex = Mutex()
+        const val MAX_MANAGED_IMPORT_BYTES = 512L * 1024L * 1024L
     }
 
     private data class SourceMetadata(

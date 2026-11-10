@@ -8,8 +8,8 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
-    entities = [DocumentEntity::class, DocumentTextEntity::class, DocumentFtsEntity::class],
-    version = 4,
+    entities = [DocumentEntity::class, DocumentTextEntity::class, DocumentFtsEntity::class, DocumentProfileEntity::class, DocumentProfileAssignmentEntity::class, DocumentReminderEntity::class],
+    version = 7,
     exportSchema = false
 )
 abstract class DocumentDatabase : RoomDatabase() {
@@ -61,6 +61,73 @@ abstract class DocumentDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("""
+                    CREATE TABLE IF NOT EXISTS document_profiles (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        name TEXT NOT NULL,
+                        icon TEXT NOT NULL,
+                        colorArgb INTEGER NOT NULL,
+                        isDefault INTEGER NOT NULL,
+                        sortOrder INTEGER NOT NULL,
+                        createdAt INTEGER NOT NULL,
+                        updatedAt INTEGER NOT NULL
+                    )
+                """.trimIndent())
+                database.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_document_profiles_name ON document_profiles(name)")
+                database.execSQL("""
+                    CREATE TABLE IF NOT EXISTS document_profile_assignments (
+                        documentId INTEGER NOT NULL,
+                        profileId INTEGER NOT NULL,
+                        categoryOverride TEXT,
+                        PRIMARY KEY(documentId, profileId),
+                        FOREIGN KEY(documentId) REFERENCES documents(id) ON UPDATE NO ACTION ON DELETE CASCADE,
+                        FOREIGN KEY(profileId) REFERENCES document_profiles(id) ON UPDATE NO ACTION ON DELETE CASCADE
+                    )
+                """.trimIndent())
+                database.execSQL("CREATE INDEX IF NOT EXISTS index_document_profile_assignments_profileId ON document_profile_assignments(profileId)")
+                database.execSQL("CREATE INDEX IF NOT EXISTS index_document_profile_assignments_documentId ON document_profile_assignments(documentId)")
+                database.execSQL("""
+                    INSERT INTO document_profiles (id, name, icon, colorArgb, isDefault, sortOrder, createdAt, updatedAt) VALUES
+                    (1, 'Personal', 'person', -16284611, 1, 0, CAST(strftime('%s','now') AS INTEGER) * 1000, CAST(strftime('%s','now') AS INTEGER) * 1000),
+                    (2, 'Shop / Business', 'store', -1524118, 0, 1, CAST(strftime('%s','now') AS INTEGER) * 1000, CAST(strftime('%s','now') AS INTEGER) * 1000),
+                    (3, 'Medical', 'medical', -6606249, 0, 2, CAST(strftime('%s','now') AS INTEGER) * 1000, CAST(strftime('%s','now') AS INTEGER) * 1000),
+                    (4, 'Farm / Agriculture', 'farm', -11500947, 0, 3, CAST(strftime('%s','now') AS INTEGER) * 1000, CAST(strftime('%s','now') AS INTEGER) * 1000),
+                    (5, 'Property', 'home', -8762301, 0, 4, CAST(strftime('%s','now') AS INTEGER) * 1000, CAST(strftime('%s','now') AS INTEGER) * 1000),
+                    (6, 'Family', 'family', -7907672, 0, 5, CAST(strftime('%s','now') AS INTEGER) * 1000, CAST(strftime('%s','now') AS INTEGER) * 1000),
+                    (7, 'CSC / Digital Services', 'service', -16085365, 0, 6, CAST(strftime('%s','now') AS INTEGER) * 1000, CAST(strftime('%s','now') AS INTEGER) * 1000),
+                    (8, 'Education', 'education', -4495521, 0, 7, CAST(strftime('%s','now') AS INTEGER) * 1000, CAST(strftime('%s','now') AS INTEGER) * 1000),
+                    (9, 'Vehicle', 'vehicle', -11842740, 0, 8, CAST(strftime('%s','now') AS INTEGER) * 1000, CAST(strftime('%s','now') AS INTEGER) * 1000)
+                """.trimIndent())
+                database.execSQL("INSERT OR IGNORE INTO document_profile_assignments (documentId, profileId, categoryOverride) SELECT id, 1, category FROM documents")
+            }
+        }
+
+        private val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("""
+                    CREATE TABLE IF NOT EXISTS document_reminders (
+                        documentId INTEGER NOT NULL PRIMARY KEY,
+                        label TEXT NOT NULL,
+                        dueAt INTEGER NOT NULL,
+                        enabled INTEGER NOT NULL,
+                        notifiedAt INTEGER,
+                        createdAt INTEGER NOT NULL,
+                        FOREIGN KEY(documentId) REFERENCES documents(id) ON UPDATE NO ACTION ON DELETE CASCADE
+                    )
+                """.trimIndent())
+                database.execSQL("CREATE INDEX IF NOT EXISTS index_document_reminders_dueAt ON document_reminders(dueAt)")
+                database.execSQL("CREATE INDEX IF NOT EXISTS index_document_reminders_documentId ON document_reminders(documentId)")
+            }
+        }
+
+        private val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("CREATE INDEX IF NOT EXISTS index_documents_contentHash ON documents(contentHash)")
+            }
+        }
+
         @Volatile
         private var instance: DocumentDatabase? = null
 
@@ -71,7 +138,7 @@ abstract class DocumentDatabase : RoomDatabase() {
                     DocumentDatabase::class.java,
                     "filekhoj.db"
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
                     .build()
                     .also { instance = it }
             }
